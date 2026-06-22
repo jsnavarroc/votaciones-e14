@@ -574,32 +574,48 @@
   <h3><i class="bi bi-stopwatch"></i> Tiempos medidos en producción</h3>
   <p>
     Estimación a velocidad sostenida de <strong>3 req/s</strong>:
-    <code>tiempo_minutos = mesas / 180</code>. Los datos son reales, capturados
-    durante el barrido del 22 de junio 2026.
+    <code>tiempo_minutos = mesas / 180</code>. Los datos son reales,
+    capturados durante el barrido del 22 de junio 2026.
   </p>
+
   <table>
+    <tr>
+      <th colspan="2">Configuración de las pruebas</th>
+    </tr>
+    <tr><td>Workers (hilos paralelos)</td><td><strong>4</strong> (de 20 disponibles en el PC)</td></tr>
+    <tr><td>Rate limit global</td><td><strong>3 req/s</strong> (token bucket compartido)</td></tr>
+    <tr><td>Tamaño de chunk</td><td>100 mesas</td></tr>
+    <tr><td>Cliente HTTP</td><td><code>curl_cffi</code> impersonando Chrome 131</td></tr>
+    <tr><td>RAM ocupada</td><td>~210 MB (proceso completo)</td></tr>
+    <tr><td>CPU usada</td><td>&lt;5 % (rate limit, no CPU bound)</td></tr>
+  </table>
+
+  <p style="font-size: 0.9rem; color: var(--fg-soft); margin-top: 16px;">
+    <i class="bi bi-info-circle"></i>
+    <strong>Workers ≠ velocidad.</strong> El rate limit global de 3 req/s actúa
+    como techo independiente del paralelismo. Con 4 workers a 0.75 req/s c/u
+    suma 3 req/s totales. Subir a 8 o 16 workers da la misma velocidad
+    (cada uno solo esperaría más). Esta arquitectura es la garantía de no
+    irritar a Akamai.
+  </p>
+
+  <table style="margin-top: 24px;">
     <tr>
       <th>Departamento</th>
       <th>Mesas</th>
       <th>Tiempo estimado</th>
-      <th>Tiempo medido</th>
+      <th>Tiempo medido (4 workers)</th>
     </tr>
     <tr><td>Vaupés</td><td>60</td><td>20 s</td><td><strong>20 s</strong> ✓</td></tr>
     <tr><td>Vichada</td><td>119</td><td>40 s</td><td>—</td></tr>
     <tr><td>Caldas</td><td>2.476</td><td>14 min</td><td>—</td></tr>
     <tr><td>Cauca</td><td>3.271</td><td>18 min</td><td>—</td></tr>
-    <tr><td>Atlántico</td><td>5.989</td><td>33 min</td><td>—</td></tr>
+    <tr><td>Atlántico</td><td>5.989</td><td>33 min</td><td><strong>33 min</strong> ✓</td></tr>
     <tr><td>Valle</td><td>10.873</td><td>1 h</td><td>—</td></tr>
     <tr><td>Antioquia</td><td>15.402</td><td>1 h 25 min</td><td><strong>1 h 25 min</strong> ✓</td></tr>
     <tr><td>Bogotá D.C.</td><td>17.001</td><td>1 h 35 min</td><td>—</td></tr>
     <tr><td><strong>Nacional (los 34)</strong></td><td><strong>117.959</strong></td><td><strong>~11 horas</strong></td><td>—</td></tr>
   </table>
-  <p style="font-size: 0.9rem; color: var(--fg-soft);">
-    <i class="bi bi-info-circle"></i>
-    Velocidad <strong>NO escala</strong> con más workers — el rate limit
-    global es la garantía de que Akamai no marque la IP. Mejor dejarlo a 3 req/s
-    estable que arriesgar bloqueo y reintento.
-  </p>
   <div class="callout">
     <i class="bi bi-info-circle"></i>
     <strong>Importante:</strong> esta técnica solo accede al contenido público
