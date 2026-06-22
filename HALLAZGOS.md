@@ -168,3 +168,71 @@ Pruebas secuenciales **sin sesión persistente** (cada request abre TLS nuevo, n
    - **5/5 OK** → Ajustar `paso2_descargar_pdfs.py` solo con cambios #1 y #2 (headers + warmup) y lanzar `--prueba 20` en Cauca.
    - **OK parcial** → Sumar #3 (reintento con backoff) y #5 (bajar workers).
    - **Todos ERR** → Cambiar de `requests` a `curl-impersonate` o `playwright` (TLS fingerprinting).
+
+---
+
+## 10. Bloqueo de Akamai a escala — la solución definitiva (22 jun 2026)
+
+Después de la fase de descarga inicial, intentar el barrido nacional (118.000 mesas con 16 workers) reveló que Akamai endurece su filtro a partir de ciertos volúmenes/intensidades.
+
+### Síntomas observados
+
+| Síntoma | Causa raíz |
+|---|---|
+| `warmup HTTP 200  cookies=0` | El portal sirve HTML genérico de 1.082 bytes sin `Set-Cookie ak_bmsc` |
+| Tasa de bloqueo creciente por chunk (67% → 76% → 70%) | Bot Manager re-evalúa cada N segundos y marca la IP |
+| Cambios de red (modo avión) sirven temporalmente | IP nueva pasa los primeros ~150 requests antes que la vuelva a marcar |
+| `requests` falla con cualquier tuning de headers/workers | El filtro real es **TLS fingerprint (JA3/JA4)**, no headers |
+
+### El filtro real: TLS fingerprinting
+
+Akamai en 2026 usa **JA3/JA4 como vector principal**. Cualquier cliente con TLS Client Hello distinto al de un Chrome real es descartado. `requests` (que usa OpenSSL) tiene un fingerprint reconocible como "biblioteca Python", independiente de los headers HTTP enviados.
+
+### La solución: `curl_cffi`
+
+`curl_cffi` impersona el TLS de Chrome a nivel de protocolo:
+- Mismo cipher suite ordering.
+- Mismas extensiones TLS.
+- Misma versión ALPN (HTTP/2 por default).
+- Misma TLS Client Hello que un Chrome real.
+
+```python
+from curl_cffi import requests as cffi_requests
+session = cffi_requests.Session(impersonate="chrome131")
+session.verify = False  # Windows libcurl no encuentra CA bundle por default
+```
+
+**Resultado tras integrar:**
+
+| Métrica | Antes (`requests`) | Después (`curl_cffi` con Chrome 131) |
+|---|---|---|
+| Tasa de bloqueo en chunks de 500 | 67–76% | **0%** |
+| Velocidad sostenida | 3.4 req/s (con cambios de red) | **21.6 req/s** |
+| Cambios de red requeridos | Cada ~150 requests | Cero |
+| Cookie `ak_bmsc` entregada en warmup | Solo en IP fresca | Siempre |
+
+### Limitaciones de `curl_cffi`
+
+1. **No ejecuta JavaScript.** Si Akamai impone JS challenge, hay que cambiar a Playwright (10–20× más latencia).
+2. **No bypasea rate limit por IP.** Si haces ráfagas extremas (e.g. 100 workers), Akamai sigue pudiendo limitar por volumen.
+3. **CA bundle de libcurl en Windows.** Por eso `verify=False`. El contenido sigue viajando por HTTPS válido, solo se omite verificación cliente.
+
+### Combinación final que funciona
+
+```
+Chrome 131 TLS impersonation (curl_cffi)
++ 4 workers (no más, no irrita rate limit)
++ Chunks de 500 con pausa de 2s entre cada uno
++ Cache de manifest <24h (no reconsulta lo ya capturado)
++ Cookie ak_bmsc persistida en la session
++ Headers Sec-Fetch-* y sec-ch-ua* correctos (capa secundaria)
+```
+
+Esa combinación pasa el filtro de Akamai **al 100% en pruebas de 200 mesas consecutivas**. Para escalar a 118.000 mesas nacional el setup se mantiene; solo cambia el tiempo total (~90 min).
+
+### Fuentes
+
+- [How to Bypass Akamai Bot Detection in 2026 — DEV Community](https://dev.to/vhub_systems_ed5641f65d59/how-to-bypass-akamai-bot-detection-in-2026-curl-cffi-residential-proxies-5h3k)
+- [Web Scraping With curl_cffi and Python in 2026 — Bright Data](https://brightdata.com/blog/web-data/web-scraping-with-curl-cffi)
+- [Supported browser impersonate targets — curl_cffi docs](https://curl-cffi.readthedocs.io/en/latest/impersonate/targets.html)
+- [How to Bypass Akamai when Web Scraping in 2026 — Scrapfly](https://scrapfly.io/blog/posts/how-to-bypass-akamai-anti-scraping)

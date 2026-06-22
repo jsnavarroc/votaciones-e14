@@ -303,6 +303,7 @@
     <li><a href="#estadisticas">Dimensión del proceso electoral</a></li>
     <li><a href="#como-funciona">¿Cómo funciona?</a></li>
     <li><a href="#integridad">Verificación de integridad oficial</a></li>
+    <li><a href="#evasion-akamai">Cómo el pipeline evade Akamai Bot Manager</a></li>
     <li><a href="#instalacion">Instalación y uso</a></li>
     <li><a href="#autor">¿Quién lo mantiene?</a></li>
   </ul>
@@ -499,6 +500,7 @@
     <tr><td>Render PDF</td><td><code>PyMuPDF</code> + <code>Pillow</code></td></tr>
     <tr><td>Reportes</td><td><code>openpyxl</code> (Excel multi-hoja)</td></tr>
     <tr><td>Interfaz</td><td><code>questionary</code> (CLI interactiva)</td></tr>
+    <tr><td>HTTP cliente</td><td><code>requests</code> + <code>curl_cffi</code> (impersona TLS de Chrome 131 para evadir Akamai)</td></tr>
     <tr><td>Visualizaciones</td><td><code>Chart.js 4</code> vía jsDelivr CDN</td></tr>
     <tr><td>Iconos</td><td><code>Bootstrap Icons 1.11</code> vía jsDelivr CDN</td></tr>
     <tr><td>Distribución</td><td>Script Python o ejecutable <code>.exe</code> (PyInstaller)</td></tr>
@@ -530,6 +532,42 @@
   </div>
 </section>
 
+<section id="evasion-akamai">
+  <h2><i class="bi bi-shield-shaded"></i> Cómo el pipeline evade Akamai Bot Manager</h2>
+  <p>
+    El portal de la Registraduría está protegido por Akamai Bot Manager, que en 2026
+    bloquea masivamente clientes Python estándar mediante <strong>TLS fingerprinting
+    (JA3/JA4)</strong>. La biblioteca <code>requests</code> tiene un fingerprint
+    reconocible como "biblioteca Python" sin importar qué headers envíe — Akamai
+    lo detecta y sirve HTML genérico de "Access Denied" con HTTP 200, sin entregar
+    cookie de sesión.
+  </p>
+  <p>
+    La solución integrada en el pipeline:
+  </p>
+  <table>
+    <tr><th>Técnica</th><th>Qué hace</th></tr>
+    <tr><td><code>curl_cffi</code> + <code>impersonate="chrome131"</code></td><td>Replica el TLS Client Hello exacto de Chrome 131: mismo cipher suite ordering, extensiones TLS, ALPN. Akamai no puede distinguirlo de un navegador real.</td></tr>
+    <tr><td>Workers limitados (4 default, 8 máx)</td><td>Akamai filtra por intensidad además de fingerprint. Con 4 hilos paralelos rara vez activa rate-limit.</td></tr>
+    <tr><td>Chunks de 500 mesas + pausa 2s</td><td>Detecta caída de tasa de éxito en vivo y ofrece cambio de red automático si vuelve a bloquear.</td></tr>
+    <tr><td>Cookie <code>ak_bmsc</code> persistida en la sesión</td><td>Después del warmup en <code>/</code>, todas las consultas reutilizan la cookie del Bot Manager Standard Cache.</td></tr>
+    <tr><td>Cache de observaciones &lt;24h</td><td>Si una mesa ya tiene ETag capturado en el manifest, no se reconsulta — sobrevivir a interrupciones sin perder progreso.</td></tr>
+  </table>
+  <p>
+    <strong>Resultado medido:</strong> de <strong>76% de bloqueo</strong> con
+    <code>requests</code> + 16 workers a <strong>0% de bloqueo</strong> con
+    <code>curl_cffi</code> + 4 workers, a velocidad sostenida de ~22 req/s.
+    El barrido nacional (118.000 mesas) toma ~90 minutos.
+  </p>
+  <div class="callout">
+    <i class="bi bi-info-circle"></i>
+    <strong>Importante:</strong> esta técnica solo accede al contenido público
+    que la propia Registraduría ya publica en su portal. No bypasea autenticación
+    ni accede a información privada. Lo único que evita es que el filtro
+    anti-bot bloquee descargas ciudadanas masivas que técnicamente son legítimas.
+  </div>
+</section>
+
 <section id="instalacion">
   <h2><i class="bi bi-rocket-takeoff"></i> Instalación y uso</h2>
 
@@ -556,6 +594,7 @@ votaciones.exe</code></pre>
 git clone https://github.com/jsnavarroc/votaciones-e14.git
 cd votaciones-e14
 pip install -r requirements.txt
+# requirements.txt incluye curl_cffi (impersona TLS de Chrome para evadir Akamai)
 python -m votaciones.menu</code></pre>
 
   <h3><i class="bi bi-tools"></i> Opción C — Generar tu propio .exe</h3>
