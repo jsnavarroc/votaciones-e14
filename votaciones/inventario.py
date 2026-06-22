@@ -26,7 +26,7 @@ def _crear_sesion():
     Desactiva verify SSL para curl_cffi (en Windows suele faltar el CA bundle
     del libcurl; el contenido viaja HTTPS igual, solo se omite verificacion)."""
     if _USE_CFFI:
-        s = _cffi_requests.Session(impersonate="chrome120")
+        s = _cffi_requests.Session(impersonate="chrome131")
         s.verify = False
         return s
     return requests.Session()
