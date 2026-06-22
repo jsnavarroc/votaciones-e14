@@ -139,14 +139,68 @@ def _respaldar_xlsx_existente(rep_depto: Path, dept_name: str) -> None:
             print(f"  [respaldo] {src.name} -> backups/{dst.name}")
 
 
+def _retry_bloqueados(session: requests.Session, filas_bloq: list[dict],
+                       workers_original: int) -> None:
+    """Reintenta los HEADs que dieron BLOCKED_NO_ETAG tras refrescar la sesion.
+    Usa menos workers para no irritar a Akamai de nuevo."""
+    if not filas_bloq:
+        return
+    print(f"\n  [!] {len(filas_bloq)} archivos bloqueados por Akamai (sin ETag).")
+    print(f"      Refrescando cookie ak_bmsc y reintentando con menos workers...")
+
+    # Tirar cookie envenenada y hacer warmup nuevo
+    session.cookies.clear()
+    try:
+        rw = session.get(f"{BASE}/", headers=HEADERS_WARMUP, timeout=60)
+        cookies = ",".join(c.name for c in session.cookies) or "(ninguna)"
+        print(f"      warmup HTTP {rw.status_code}  cookies={cookies}")
+    except requests.RequestException as e:
+        print(f"      WARMUP FAIL: {e}  -- no se puede reintentar")
+        return
+    time.sleep(3)  # pausa para que Akamai baje el bot-score
+
+    workers_retry = max(2, workers_original // 4)
+    print(f"      Reintentando con {workers_retry} workers (vs {workers_original} originales)")
+
+    t0 = time.time()
+    pool = ThreadPoolExecutor(max_workers=workers_retry)
+    try:
+        futs = {pool.submit(_head_servidor, session, f["url"]): f for f in filas_bloq}
+        done = 0
+        total = len(futs)
+        for fut in as_completed(futs):
+            fila = futs[fut]
+            srv_new = fut.result()
+            # Solo sobrescribir si el reintento dio ETag (mejor que antes)
+            if srv_new.get("etag"):
+                fila["srv"] = srv_new
+            done += 1
+            if done % 50 == 0 or done == total:
+                vel = done / (time.time() - t0) if time.time() > t0 else 0
+                print(f"      retry {done}/{total}  ({vel:.1f}/s)")
+    except KeyboardInterrupt:
+        print(f"\n      [!] Cancelado, deteniendo retry...")
+        pool.shutdown(wait=False, cancel_futures=True)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    aun_bloq = sum(1 for f in filas_bloq if not f["srv"].get("etag"))
+    recuperados = len(filas_bloq) - aun_bloq
+    print(f"      Resultado: recuperados={recuperados}  aun_bloqueados={aun_bloq}")
+
+
 def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
-             out: Path | None = None, respaldar_xlsx: bool = False) -> int:
+             out: Path | None = None, respaldar_xlsx: bool = False,
+             prueba: int | None = None) -> int:
     tree, codes = cargar_indices()
     dept_name, mun_map = buscar_departamento(tree, dept_code)
     transmisiones = transmisiones_del_depto(codes, dept_code)
 
     print(f"\n>>> {dept_name} (codigo {dept_code})")
     print(f"    Mesas con PDF disponible: {len(transmisiones)}")
+    if prueba is not None and prueba > 0:
+        transmisiones = transmisiones[:prueba]
+        print(f"    MODO PRUEBA: solo {len(transmisiones)} mesas")
     print(f"    Validando archivos en {PDFS_DIR / safe_dir(dept_name)}")
     if sin_red:
         print("    Consulta al servidor: NO (--sin-red)\n")
@@ -249,6 +303,12 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
             print(f"  [!] Se guardara lo procesado hasta ahora ({done}/{total} archivos).")
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
+
+        # Si Akamai bloqueo muchos, reintentar con re-warmup y menos workers
+        filas_bloq = [f for f in filas if f["srv"].get("http_status") == "BLOCKED_NO_ETAG"]
+        umbral_bloqueo = max(5, int(len(filas) * 0.05))  # >=5% o >=5 bloqueos
+        if len(filas_bloq) >= umbral_bloqueo:
+            _retry_bloqueados(session, filas_bloq, workers)
 
     verificado_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     manifest_path = rep_depto / f"manifest_{safe_dir(dept_name)}.jsonl"
@@ -365,7 +425,7 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
-        print("Uso: python -m votaciones.inventario <CODE> [--workers K] [--sin-red]")
+        print("Uso: python -m votaciones.inventario <CODE> [--workers K] [--sin-red] [--prueba N]")
         raise SystemExit(0)
     code = sys.argv[1].zfill(2)
     kw = {}
@@ -373,5 +433,6 @@ if __name__ == "__main__":
     while i < len(sys.argv):
         if sys.argv[i] == "--workers": kw["workers"] = int(sys.argv[i+1]); i += 2
         elif sys.argv[i] == "--sin-red": kw["sin_red"] = True; i += 1
+        elif sys.argv[i] == "--prueba": kw["prueba"] = int(sys.argv[i+1]); i += 2
         else: i += 1
     raise SystemExit(ejecutar(code, **kw))
