@@ -323,57 +323,66 @@
 </section>
 
 <section id="estadisticas">
-  <h2><i class="bi bi-bar-chart"></i> Estadísticas del proceso electoral</h2>
+  <h2><i class="bi bi-bar-chart"></i> Dimensión del proceso electoral</h2>
   <p>
-    Datos extraídos del catálogo oficial de la Registraduría
-    (<code>allTransmissionCodes.json</code>) al momento de la última corrida del pipeline.
+    Datos del catálogo oficial de la Registraduría (<code>allTransmissionCodes.json</code>),
+    capturados al ejecutar el pipeline. Estas cifras describen el universo de mesas
+    sobre las que actúa la herramienta.
   </p>
 
   <div class="kpi-grid">
     <div class="kpi">
       <i class="bi bi-grid-3x3-gap"></i>
       <div class="num" id="kpi-mesas">—</div>
-      <div class="lbl">Mesas a nivel nacional</div>
-    </div>
-    <div class="kpi ok">
-      <i class="bi bi-check2-circle"></i>
-      <div class="num" id="kpi-pub">—</div>
-      <div class="lbl">Actas publicadas</div>
-    </div>
-    <div class="kpi alerta">
-      <i class="bi bi-hourglass-split"></i>
-      <div class="num" id="kpi-pend">—</div>
-      <div class="lbl">Actas pendientes</div>
+      <div class="lbl">Mesas de votación nacional</div>
     </div>
     <div class="kpi">
       <i class="bi bi-flag"></i>
-      <div class="num" id="kpi-deptos">34</div>
+      <div class="num">34</div>
       <div class="lbl">Departamentos + Consulados</div>
     </div>
-  </div>
-
-  <div class="chart-card">
-    <h3><i class="bi bi-pie-chart"></i> Cobertura nacional</h3>
-    <p class="sub">Porcentaje de actas E-14 publicadas vs aún sin publicar.</p>
-    <div class="chart-wrap">
-      <canvas id="chart-cobertura"></canvas>
+    <div class="kpi">
+      <i class="bi bi-geo-alt"></i>
+      <div class="num">1.189</div>
+      <div class="lbl">Municipios y sedes consulares</div>
+    </div>
+    <div class="kpi">
+      <i class="bi bi-cpu"></i>
+      <div class="num">~6 GB</div>
+      <div class="lbl">Tamaño estimado del dataset nacional</div>
     </div>
   </div>
 
   <div class="chart-card">
-    <h3><i class="bi bi-bar-chart-line"></i> Mesas por departamento (todos)</h3>
-    <p class="sub">Cantidad total de mesas registradas en el sistema, por departamento.</p>
+    <h3><i class="bi bi-bar-chart-line"></i> Mesas por departamento</h3>
+    <p class="sub">
+      Cantidad de mesas de votación registradas en cada departamento. Útil para
+      dimensionar el esfuerzo de descarga: a más mesas, mayor tiempo y espacio en disco.
+    </p>
     <div class="chart-wrap tall">
       <canvas id="chart-deptos"></canvas>
     </div>
   </div>
 
   <div class="chart-card">
-    <h3><i class="bi bi-stack"></i> Top 10: publicadas vs pendientes</h3>
-    <p class="sub">Los 10 departamentos con más mesas y cómo se reparten entre las ya publicadas (verde) y las pendientes (rojo).</p>
-    <div class="chart-wrap">
-      <canvas id="chart-top10"></canvas>
-    </div>
+    <h3><i class="bi bi-info-circle"></i> Cómo se determina si un acta está disponible</h3>
+    <p style="color: var(--fg);">
+      El catálogo público de la Registraduría agrupa las mesas en dos buckets internos
+      (<code>status3</code> y <code>status11</code>) cuyo significado preciso no está
+      documentado públicamente. En pruebas hechas con este pipeline, <strong>ambos
+      buckets contienen actas que sí se descargan correctamente</strong>.
+    </p>
+    <p style="color: var(--fg);">
+      Por eso el pipeline no asume nada del bucket: simplemente intenta descargar cada acta
+      y deja que el servidor responda. Las actas que devuelven un PDF válido se guardan,
+      las que devuelven error o HTML se marcan como faltantes para reintentar más tarde.
+    </p>
+    <p style="color: var(--fg);">
+      <strong>El indicador real de disponibilidad es el resultado del paso 2</strong>
+      (descarga), no un conteo derivado del catálogo. En el departamento del Cauca
+      (caso piloto), por ejemplo, de 3.271 mesas en el catálogo se descargaron exitosamente
+      2.486 actas en una sola corrida.
+    </p>
   </div>
 </section>
 
@@ -453,16 +462,36 @@
 <section id="instalacion">
   <h2><i class="bi bi-rocket-takeoff"></i> Instalación y uso</h2>
 
-  <h3><i class="bi bi-1-circle"></i> Opción A — Script de Python (requiere Python 3.10+)</h3>
-<pre><code>git clone https://github.com/jsnavarroc/votaciones-e14.git
+  <h3><i class="bi bi-person"></i> Opción A — Para usuarios (la más fácil)</h3>
+  <p>
+    Descarga el ejecutable de la última versión y haz doble clic. <strong>No requiere
+    Python instalado ni ningún paso adicional</strong> — el ejecutable trae todo embebido.
+  </p>
+<pre><code># 1. Descarga votaciones.exe desde:
+#    https://github.com/jsnavarroc/votaciones-e14/releases
+
+# 2. Doble clic en votaciones.exe (o desde terminal):
+votaciones.exe</code></pre>
+  <div class="callout" style="background: rgba(63,185,80,0.08); border-left-color: var(--green);">
+    <i class="bi bi-info-circle" style="color: var(--green) !important;"></i>
+    <strong>El .exe es autosuficiente.</strong> Trae el intérprete Python y todas las
+    dependencias dentro. Pesa unos 40 MB y corre en cualquier Windows 10/11.
+    Lo único que necesita es conexión a internet (descarga las actas del portal de la Registraduría).
+  </div>
+
+  <h3><i class="bi bi-code-slash"></i> Opción B — Para desarrolladores</h3>
+  <p>Si quieres leer el código, modificarlo o contribuir mejoras:</p>
+<pre><code># Requiere Python 3.10+
+git clone https://github.com/jsnavarroc/votaciones-e14.git
 cd votaciones-e14
 pip install -r requirements.txt
 python -m votaciones.menu</code></pre>
 
-  <h3><i class="bi bi-2-circle"></i> Opción B — Ejecutable Windows (.exe)</h3>
+  <h3><i class="bi bi-tools"></i> Opción C — Generar tu propio .exe</h3>
+  <p>Si quieres compilar el ejecutable tú mismo (por ejemplo para firmarlo con tu propio certificado):</p>
 <pre><code>pip install pyinstaller
 python build_exe.py
-# Resultado: dist/votaciones.exe — corre en cualquier Windows sin Python</code></pre>
+# Resultado: dist/votaciones.exe</code></pre>
 
   <h3><i class="bi bi-terminal"></i> Una vez abierto, el menú te guía</h3>
 <pre><code>==================================================
@@ -481,6 +510,45 @@ python build_exe.py
     4) Detectar cambios
     5) Cambiar departamento
     0) Salir</code></pre>
+
+  <h3><i class="bi bi-keyboard"></i> Comandos avanzados (modo CLI)</h3>
+  <p>
+    Si prefieres saltar el menú y ejecutar pasos individuales — útil para automatización
+    con cron, GitHub Actions o scripts batch:
+  </p>
+<pre><code># 1. Descargar el catalogo de mesas (una sola vez)
+python -m votaciones.indices
+
+# 2. Descargar todos los PDFs de un departamento (ej. Cauca = 11)
+python -m votaciones.descargar 11                          # todo
+python -m votaciones.descargar 11 --prueba 5               # modo prueba
+python -m votaciones.descargar 11 --workers 16             # mas paralelismo
+
+# 3. Generar el Excel de inventario + capturar integridad del servidor
+python -m votaciones.inventario 11
+python -m votaciones.inventario 11 --workers 16
+python -m votaciones.inventario 11 --sin-red               # solo validacion local
+
+# 4. Convertir PDFs a imagenes (para mandar a OCR / IA de vision)
+python -m votaciones.imagenes 11 --stitch --horizontal --jpg --rotar 90 --dpi 250
+
+# 5. Detectar cambios entre dos corridas del paso 3
+python -m votaciones.cambios 11                            # reporte completo
+python -m votaciones.cambios 11 --solo-cambios             # solo modificados</code></pre>
+
+  <h3><i class="bi bi-list-check"></i> Códigos de departamento</h3>
+  <p>Algunos códigos comunes que pasarás como argumento a los comandos:</p>
+  <table>
+    <tr><th>Código</th><th>Departamento</th><th>Código</th><th>Departamento</th></tr>
+    <tr><td><code>11</code></td><td>CAUCA</td><td><code>01</code></td><td>ANTIOQUIA</td></tr>
+    <tr><td><code>16</code></td><td>BOGOTÁ D.C.</td><td><code>31</code></td><td>VALLE</td></tr>
+    <tr><td><code>15</code></td><td>CUNDINAMARCA</td><td><code>27</code></td><td>SANTANDER</td></tr>
+    <tr><td><code>03</code></td><td>ATLÁNTICO</td><td><code>05</code></td><td>BOLÍVAR</td></tr>
+    <tr><td><code>88</code></td><td>CONSULADOS (voto exterior)</td><td colspan="2"><em>...y 26 departamentos más</em></td></tr>
+  </table>
+  <p style="font-size: 0.85rem; color: var(--fg-soft);">
+    Lista completa: ejecuta el menú y verás los 34 departamentos con flechas.
+  </p>
 </section>
 
 <section id="autor">
@@ -525,9 +593,7 @@ python build_exe.py
 
 <script>
 // =========== Datos (snapshot al momento del build) ===========
-const TOTAL_MESAS    = 117959;
-const TOTAL_PUBLICAS = 478;
-const TOTAL_PENDIENT = 117481;
+const TOTAL_MESAS = 117959;
 
 const DEPTOS = [
   {code:"16", name:"BOGOTA D.C.",    total:17001, publicados:9,  pendientes:16992},
@@ -569,8 +635,6 @@ const DEPTOS = [
 // =========== KPIs ===========
 const fmt = n => n.toLocaleString("es-CO");
 document.getElementById("kpi-mesas").textContent = fmt(TOTAL_MESAS);
-document.getElementById("kpi-pub").textContent   = fmt(TOTAL_PUBLICAS);
-document.getElementById("kpi-pend").textContent  = fmt(TOTAL_PENDIENT);
 
 // =========== Chart.js defaults para modo dark ===========
 const DARK_FG     = "#c9d1d9";
@@ -587,38 +651,7 @@ Chart.defaults.plugins.tooltip.borderColor = "#30363d";
 Chart.defaults.plugins.tooltip.borderWidth = 1;
 Chart.defaults.plugins.tooltip.padding = 10;
 
-// =========== Chart 1: Cobertura (donut) ===========
-new Chart(document.getElementById("chart-cobertura"), {
-  type: "doughnut",
-  data: {
-    labels: ["Publicadas", "Pendientes"],
-    datasets: [{
-      data: [TOTAL_PUBLICAS, TOTAL_PENDIENT],
-      backgroundColor: ["#3fb950", "#f85149"],
-      borderColor: DARK_BG,
-      borderWidth: 3,
-      hoverOffset: 10,
-    }],
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { position: "bottom" },
-      tooltip: {
-        callbacks: {
-          label: ctx => {
-            const v = ctx.raw;
-            const pct = (v / TOTAL_MESAS * 100).toFixed(2);
-            return `${ctx.label}: ${fmt(v)} (${pct}%)`;
-          },
-        },
-      },
-    },
-  },
-});
-
-// =========== Chart 2: mesas por departamento (todos) ===========
+// =========== Chart: mesas por departamento (todos) ===========
 const sortedAll = [...DEPTOS].sort((a, b) => b.total - a.total);
 new Chart(document.getElementById("chart-deptos"), {
   type: "bar",
@@ -657,56 +690,6 @@ new Chart(document.getElementById("chart-deptos"), {
   },
 });
 
-// =========== Chart 3: top 10 publicadas vs pendientes ===========
-const top10 = sortedAll.slice(0, 10);
-new Chart(document.getElementById("chart-top10"), {
-  type: "bar",
-  data: {
-    labels: top10.map(d => d.name),
-    datasets: [
-      {
-        label: "Publicadas",
-        data: top10.map(d => d.publicados),
-        backgroundColor: "#3fb950",
-        hoverBackgroundColor: "#56d364",
-        borderRadius: 3,
-        stack: "s1",
-      },
-      {
-        label: "Pendientes",
-        data: top10.map(d => d.pendientes),
-        backgroundColor: "#f85149",
-        hoverBackgroundColor: "#ff6e64",
-        borderRadius: 3,
-        stack: "s1",
-      },
-    ],
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { position: "bottom" },
-      tooltip: {
-        callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)}` },
-      },
-    },
-    scales: {
-      x: {
-        stacked: true,
-        grid: { display: false },
-        ticks: { color: DARK_FG },
-        border: { color: DARK_GRID },
-      },
-      y: {
-        stacked: true,
-        ticks: { callback: v => fmt(v), color: DARK_FG_SO },
-        grid: { color: DARK_GRID },
-        border: { color: DARK_GRID },
-      },
-    },
-  },
-});
 </script>
 
 </body>
