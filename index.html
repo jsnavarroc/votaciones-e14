@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>votaciones-e14 | Auditoría ciudadana de actas E-14</title>
-<meta name="description" content="Pipeline en Python para descargar masivamente las actas E-14 de la Registraduría Nacional de Colombia y detectar modificaciones en el servidor — Segunda Vuelta Presidencial 2026.">
+<meta name="description" content="Pipeline en Python para descargar masivamente las actas E-14 de la Registraduría Nacional de Colombia — incluye departamentos y voto en el exterior (consulados) — y detectar modificaciones en el servidor. Segunda Vuelta Presidencial 2026.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
@@ -326,8 +326,9 @@
 <section id="video">
   <h2><i class="bi bi-play-circle"></i> Video demo</h2>
   <p>
-    Recorrido completo del menú interactivo: cómo descargar las actas E-14 de un departamento,
-    generar el Excel con la verificación de integridad y detectar cambios entre corridas.
+    Recorrido completo del menú interactivo: cómo descargar las actas E-14 de un departamento
+    o de los consulados (voto en el exterior), generar el Excel con la verificación de
+    integridad y detectar cambios entre corridas.
   </p>
   <div class="video-wrap">
     <iframe
@@ -443,7 +444,7 @@
     <div class="paso">
       <div class="num">2</div>
       <h4><i class="bi bi-file-earmark-pdf"></i> Descargar PDFs</h4>
-      <p>Descarga en paralelo todas las actas de un departamento.</p>
+      <p>Descarga en paralelo todas las actas de un departamento o de los consulados (voto en el exterior).</p>
     </div>
     <div class="paso">
       <div class="num">3</div>
@@ -563,8 +564,10 @@ python build_exe.py
 <pre><code># 1. Descargar el catalogo de mesas (una sola vez)
 python -m votaciones.indices
 
-# 2. Descargar todos los PDFs de un departamento (ej. Cauca = 11)
-python -m votaciones.descargar 11                          # todo
+# 2. Descargar todos los PDFs de un departamento o de los consulados.
+#    Ejemplos:  11 = CAUCA   16 = BOGOTA   88 = CONSULADOS (voto exterior)
+python -m votaciones.descargar 11                          # todo Cauca
+python -m votaciones.descargar 88                          # voto en el exterior
 python -m votaciones.descargar 11 --prueba 5               # modo prueba
 python -m votaciones.descargar 11 --workers 16             # mas paralelismo
 
@@ -580,18 +583,22 @@ python -m votaciones.imagenes 11 --stitch --horizontal --jpg --rotar 90 --dpi 25
 python -m votaciones.cambios 11                            # reporte completo
 python -m votaciones.cambios 11 --solo-cambios             # solo modificados</code></pre>
 
-  <h3><i class="bi bi-list-check"></i> Códigos de departamento</h3>
-  <p>Algunos códigos comunes que pasarás como argumento a los comandos:</p>
+  <h3><i class="bi bi-list-check"></i> Códigos de departamento y consulados</h3>
+  <p>
+    Algunos códigos comunes que pasarás como argumento a los comandos. El código
+    <code>88</code> agrupa todos los <strong>consulados donde se vota en el exterior</strong>
+    — el pipeline los procesa exactamente igual que cualquier departamento.
+  </p>
   <table>
-    <tr><th>Código</th><th>Departamento</th><th>Código</th><th>Departamento</th></tr>
+    <tr><th>Código</th><th>Territorio</th><th>Código</th><th>Territorio</th></tr>
     <tr><td><code>11</code></td><td>CAUCA</td><td><code>01</code></td><td>ANTIOQUIA</td></tr>
     <tr><td><code>16</code></td><td>BOGOTÁ D.C.</td><td><code>31</code></td><td>VALLE</td></tr>
     <tr><td><code>15</code></td><td>CUNDINAMARCA</td><td><code>27</code></td><td>SANTANDER</td></tr>
     <tr><td><code>03</code></td><td>ATLÁNTICO</td><td><code>05</code></td><td>BOLÍVAR</td></tr>
-    <tr><td><code>88</code></td><td>CONSULADOS (voto exterior)</td><td colspan="2"><em>...y 26 departamentos más</em></td></tr>
+    <tr><td><code>88</code></td><td><strong>CONSULADOS</strong> (voto en el exterior — 67 sedes)</td><td colspan="2"><em>...y 26 departamentos más</em></td></tr>
   </table>
   <p style="font-size: 0.85rem; color: var(--fg-soft);">
-    Lista completa: ejecuta el menú y verás los 34 departamentos con flechas.
+    Lista completa: ejecuta el menú y verás los 33 departamentos + consulados con flechas.
   </p>
 </section>
 

@@ -5,7 +5,7 @@
 
 Pipeline en Python para descargar, validar y procesar masivamente las **actas E-14** (escrutinio de jurados de votación) publicadas por la Registraduría Nacional de Colombia — Segunda Vuelta Presidencial 2026.
 
-Pensado para **auditoría ciudadana**: descarga todas las actas de un departamento, captura las huellas criptográficas oficiales del servidor (S3 ETag + version-id + Last-Modified) en cada corrida y detecta automáticamente si la Registraduría modifica un archivo después de tu primera descarga.
+Pensado para **auditoría ciudadana**: descarga todas las actas de un departamento (o de los **consulados de voto en el exterior**), captura las huellas criptográficas oficiales del servidor (S3 ETag + version-id + Last-Modified) en cada corrida y detecta automáticamente si la Registraduría modifica un archivo después de tu primera descarga.
 
 ---
 
@@ -22,7 +22,7 @@ Pensado para **auditoría ciudadana**: descarga todas las actas de un departamen
 | Paso | Acción |
 |---|---|
 | 1 | Descarga los JSONs del catálogo maestro (~36 MB) |
-| 2 | Descarga en paralelo todos los PDFs E-14 de un departamento |
+| 2 | Descarga en paralelo todos los PDFs E-14 de un departamento o de los consulados (voto en el exterior, código `88`) |
 | 3 | Genera Excel con inventario + calcula MD5/SHA-256 locales + consulta integridad oficial al servidor |
 | 4 | Convierte PDFs a imágenes (PNG/JPG, varios layouts) para mandar a OCR / IA de visión |
 | 5 | Compara dos corridas del paso 3 y reporta archivos que el servidor cambió |
