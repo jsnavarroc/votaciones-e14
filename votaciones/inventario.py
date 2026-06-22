@@ -277,7 +277,14 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
         session = requests.Session()
         try:
             session.get(f"{BASE}/", headers=HEADERS_WARMUP, timeout=60)
-            print(f"        warmup OK  cookies={len(session.cookies)}")
+            n_cookies = len(session.cookies)
+            print(f"        warmup OK  cookies={n_cookies}")
+            if n_cookies == 0:
+                print(f"        [!] Akamai NO entrego cookie ak_bmsc -> tu IP esta BLOQUEADA.")
+                print(f"        [!] Saltando consulta al servidor (todos quedaran sin ETag).")
+                print(f"        [!] Ejecuta: python diagnosticar_akamai.py")
+                print(f"        [!] y aplica una de las soluciones (esperar / VPN / hotspot).")
+                sin_red = True
         except requests.RequestException as e:
             print(f"        WARMUP FAIL: {e}  -- columnas servidor_* quedaran vacias")
             sin_red = True
