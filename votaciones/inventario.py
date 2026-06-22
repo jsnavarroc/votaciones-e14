@@ -139,6 +139,45 @@ def _respaldar_xlsx_existente(rep_depto: Path, dept_name: str) -> None:
             print(f"  [respaldo] {src.name} -> backups/{dst.name}")
 
 
+def _cargar_obs_recientes(manifest_path: Path, horas_max: int = 24) -> dict[str, dict]:
+    """Lee el manifest y devuelve {url: {servidor: {...}, verificado_utc: ...}}
+    con la observacion MAS RECIENTE por URL que tenga ETag. Solo las que esten
+    dentro de `horas_max`. Sirve para no re-consultar mesas ya capturadas."""
+    if not manifest_path.exists():
+        return {}
+    ahora = dt.datetime.now(dt.timezone.utc)
+    umbral = ahora - dt.timedelta(hours=horas_max)
+    obs: dict[str, dict] = {}
+    with manifest_path.open(encoding="utf-8") as f:
+        for linea in f:
+            linea = linea.strip()
+            if not linea:
+                continue
+            try:
+                r = json.loads(linea)
+            except json.JSONDecodeError:
+                continue
+            srv = r.get("servidor", {})
+            if not srv.get("etag"):
+                continue
+            try:
+                t = dt.datetime.fromisoformat(r["verificado_utc"])
+            except (KeyError, ValueError):
+                continue
+            if t < umbral:
+                continue
+            url = r.get("url")
+            if not url:
+                continue
+            if url not in obs:
+                obs[url] = r
+            else:
+                t_prev = dt.datetime.fromisoformat(obs[url]["verificado_utc"])
+                if t > t_prev:
+                    obs[url] = r
+    return obs
+
+
 def _ip_libre(session: requests.Session) -> tuple[bool, str]:
     """Verifica si la IP actual NO esta bloqueada por Akamai.
     Devuelve (libre, mensaje_diagnostico)."""
@@ -184,6 +223,62 @@ def _esperar_cambio_de_red(session: requests.Session, intentos_max: int = 5) -> 
             print(f"  Probemos otra vez: cambia a OTRA red (otro hotspot, VPN, etc.)")
     print(f"\n  [X] Despues de {intentos_max} intentos no logramos una IP libre.")
     return False
+
+
+def _heads_en_chunks(session: requests.Session, filas_pendientes: list[dict],
+                      workers: int, chunk_size: int = 500) -> None:
+    """Procesa HEADs en chunks. Entre cada chunk:
+    - mide tasa de bloqueo;
+    - si >30% bloqueado, ofrece cambio de red automáticamente;
+    - pausa de 2s entre chunks normales."""
+    n_total = len(filas_pendientes)
+    t_total = time.time()
+    procesado = 0
+    for chunk_start in range(0, n_total, chunk_size):
+        chunk = filas_pendientes[chunk_start:chunk_start + chunk_size]
+        t_chunk = time.time()
+        bloq = 0
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futs = {pool.submit(_head_servidor, session, f["url"]): f for f in chunk}
+            for fut in as_completed(futs):
+                f = futs[fut]
+                f["srv"] = fut.result()
+                if f["srv"].get("http_status") == "BLOCKED_NO_ETAG":
+                    bloq += 1
+                procesado += 1
+        except KeyboardInterrupt:
+            print(f"\n    [!] Cancelado por usuario.")
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        n_chunk = len(chunk)
+        ok_chunk = n_chunk - bloq
+        ratio = bloq / n_chunk if n_chunk else 0
+        dt_chunk = time.time() - t_chunk
+        dt_total = time.time() - t_total
+        vel = procesado / dt_total if dt_total else 0
+        print(f"    chunk {chunk_start+1:>5}-{chunk_start+n_chunk:<5}: "
+              f"ok={ok_chunk:>4} bloq={bloq:>4} ({ratio*100:>3.0f}%) "
+              f"|  total {procesado:>5}/{n_total}  vel={vel:.1f}/s")
+
+        # Si quedan mas chunks y la tasa de bloqueo es alta, intervenir
+        es_ultimo = (chunk_start + chunk_size >= n_total)
+        if not es_ultimo and ratio > 0.30:
+            print(f"    [!] Tasa de bloqueo alta ({ratio*100:.0f}%). Verificando IP...")
+            libre, msg = _ip_libre(session)
+            print(f"        {msg}")
+            if not libre:
+                if not _esperar_cambio_de_red(session):
+                    print(f"    [!] Sin red libre, abandonando resto del chunk-flow.")
+                    break
+            else:
+                print(f"    [!] IP libre pero Akamai filtra agresivo. Pausando 10s...")
+                time.sleep(10)
+        elif not es_ultimo:
+            time.sleep(2)  # respiro entre chunks limpios
 
 
 def _retry_bloqueados(session: requests.Session, filas_bloq: list[dict],
@@ -338,32 +433,36 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
             sin_red = True
 
     if not sin_red:
-        t0 = time.time()
-        pool = ThreadPoolExecutor(max_workers=workers)
-        try:
-            futs = {pool.submit(_head_servidor, session, fila["url"]): fila for fila in filas}
-            done = 0
-            total = len(futs)
-            for fut in as_completed(futs):
-                fila = futs[fut]
-                fila["srv"] = fut.result()
-                done += 1
-                if done % 100 == 0 or done == total:
-                    dt_ = time.time() - t0
-                    vel = done / dt_ if dt_ else 0
-                    print(f"        {done}/{total}  ({vel:.1f}/s)")
-        except KeyboardInterrupt:
-            print(f"\n  [!] Cancelado por usuario. Deteniendo workers...")
-            pool.shutdown(wait=False, cancel_futures=True)
-            print(f"  [!] Se guardara lo procesado hasta ahora ({done}/{total} archivos).")
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+        # Cargar observaciones ya capturadas (<24h) del manifest existente
+        manifest_existente = reportes_dir_depto(dept_name) / f"manifest_{safe_dir(dept_name)}.jsonl"
+        obs_cache = _cargar_obs_recientes(manifest_existente, horas_max=24)
+        if obs_cache:
+            print(f"        Cache: {len(obs_cache)} mesas con observacion <24h y con ETag (no se reconsultan).")
 
-        # Si Akamai bloqueo muchos, reintentar con re-warmup y menos workers
-        filas_bloq = [f for f in filas if f["srv"].get("http_status") == "BLOCKED_NO_ETAG"]
-        umbral_bloqueo = max(5, int(len(filas) * 0.05))  # >=5% o >=5 bloqueos
-        if len(filas_bloq) >= umbral_bloqueo:
-            _retry_bloqueados(session, filas_bloq, workers)
+        # Reusar observacion cacheada si existe; consultar solo las pendientes
+        filas_pendientes = []
+        n_reused = 0
+        for fila in filas:
+            if fila["url"] in obs_cache:
+                fila["srv"] = obs_cache[fila["url"]]["servidor"]
+                n_reused += 1
+            else:
+                filas_pendientes.append(fila)
+        if n_reused:
+            print(f"        Reusadas: {n_reused}  Pendientes a consultar: {len(filas_pendientes)}")
+
+        if filas_pendientes:
+            try:
+                _heads_en_chunks(session, filas_pendientes, workers, chunk_size=500)
+            except KeyboardInterrupt:
+                print(f"\n  [!] Cancelado, guardando lo procesado hasta ahora.")
+
+            # Reintentar los que quedaron bloqueados
+            filas_bloq = [f for f in filas_pendientes
+                          if f["srv"].get("http_status") == "BLOCKED_NO_ETAG"]
+            umbral_bloqueo = max(5, int(len(filas_pendientes) * 0.05))
+            if len(filas_bloq) >= umbral_bloqueo:
+                _retry_bloqueados(session, filas_bloq, workers)
 
     verificado_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     manifest_path = rep_depto / f"manifest_{safe_dir(dept_name)}.jsonl"

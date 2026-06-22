@@ -130,16 +130,22 @@ def _menu_acciones(dept_code: str, dept_name: str) -> str:
 
 
 def _workers_sugeridos(tipo: str) -> tuple[int, int, int]:
-    """Devuelve (recomendado, maximo_seguro, cores). Si tipo='io' (red, no CPU
-    intensivo) puede usar mas hilos que cores. Si tipo='cpu' (render PDF, etc.)
-    deja al menos 1 nucleo libre para que el sistema responda."""
+    """Devuelve (recomendado, maximo_seguro, cores).
+
+    Para tipo='io' (consultas al portal de la Registraduria) usamos valores
+    conservadores: Akamai Bot Manager bloquea ráfagas; >=8 workers suele
+    activar el filtro. Recomendado 4 es el sweet spot.
+
+    Para tipo='cpu' (render PDF, etc.) deja al menos 1 nucleo libre."""
     cores = os.cpu_count() or 4
     if tipo == "io":
-        recom = min(cores * 2, 16)       # bloqueo en red, hilos extra ayudan
-        maximo = min(cores * 4, 32)
+        # Akamai filtra por intensidad, no por cores. 4 workers raramente
+        # disparan el bot manager; 8 es el limite practico.
+        recom = 4
+        maximo = 8
     else:  # cpu
-        recom = max(1, cores - 1)        # deja 1 libre para no congelar PC
-        maximo = cores                   # no pasar de fisicos
+        recom = max(1, cores - 1)
+        maximo = cores
     return recom, maximo, cores
 
 
@@ -201,16 +207,34 @@ def _accion_descargar(dept_code: str) -> None:
 
 
 def _accion_inventario(dept_code: str) -> None:
-    con_red = questionary.confirm(
+    con_red = _ask_or_back(questionary.confirm(
         "Consultar al servidor para capturar ETag/version-id? (recomendado)",
         default=True,
-    ).ask()
-    workers = 10
+    ))
+    workers = 4
+    prueba = None
     if con_red:
+        prueba = _preguntar_modo(default_prueba="5")
         workers = _preguntar_workers("io")
-    # respaldar_xlsx=True para no perder vistas anteriores al sobrescribir
     inventario.ejecutar(dept_code, workers=workers, sin_red=not con_red,
-                        respaldar_xlsx=True)
+                        respaldar_xlsx=True, prueba=prueba)
+
+
+def _bulk_inventario(deptos: list[dict]) -> None:
+    con_red = _ask_or_back(questionary.confirm(
+        "Consultar al servidor para capturar ETag/version-id? (recomendado)",
+        default=True,
+    ))
+    prueba = _preguntar_modo(default_prueba="10") if con_red else None
+    workers = _preguntar_workers("io") if con_red else 4
+    if not _confirmar_bulk(deptos, "Generar Excel + integridad"):
+        return
+    _ejecutar_sobre_deptos(
+        deptos, "INVENTARIO + INTEGRIDAD",
+        lambda d: inventario.ejecutar(d["code"], workers=workers,
+                                       sin_red=not con_red, respaldar_xlsx=True,
+                                       prueba=prueba),
+    )
 
 
 def _accion_imagenes(dept_code: str) -> None:
@@ -325,21 +349,6 @@ def _bulk_descargar(deptos: list[dict]) -> None:
     _ejecutar_sobre_deptos(
         deptos, "DESCARGA DE PDFs",
         lambda d: descargar.ejecutar(d["code"], workers=workers, prueba=prueba),
-    )
-
-
-def _bulk_inventario(deptos: list[dict]) -> None:
-    con_red = questionary.confirm(
-        "Consultar al servidor para capturar ETag/version-id? (recomendado)",
-        default=True,
-    ).ask()
-    workers = _preguntar_workers("io") if con_red else 10
-    if not _confirmar_bulk(deptos, "Generar Excel + integridad"):
-        return
-    _ejecutar_sobre_deptos(
-        deptos, "INVENTARIO + INTEGRIDAD",
-        lambda d: inventario.ejecutar(d["code"], workers=workers,
-                                       sin_red=not con_red, respaldar_xlsx=True),
     )
 
 
