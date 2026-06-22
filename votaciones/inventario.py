@@ -139,25 +139,71 @@ def _respaldar_xlsx_existente(rep_depto: Path, dept_name: str) -> None:
             print(f"  [respaldo] {src.name} -> backups/{dst.name}")
 
 
+def _ip_libre(session: requests.Session) -> tuple[bool, str]:
+    """Verifica si la IP actual NO esta bloqueada por Akamai.
+    Devuelve (libre, mensaje_diagnostico)."""
+    session.cookies.clear()
+    try:
+        r = session.get(f"{BASE}/", headers=HEADERS_WARMUP, timeout=30)
+    except requests.RequestException as e:
+        return False, f"ERROR conexion: {e}"
+    n_cookies = len(session.cookies)
+    bloqueo = "Access Denied" in r.text
+    if n_cookies > 0 and not bloqueo:
+        return True, f"HTTP {r.status_code} cookies={n_cookies} bytes={len(r.content)} -> IP LIBRE"
+    return False, f"HTTP {r.status_code} cookies={n_cookies} bytes={len(r.content)} -> BLOQUEADO"
+
+
+def _esperar_cambio_de_red(session: requests.Session, intentos_max: int = 5) -> bool:
+    """Pausa y le pide al usuario cambiar de IP (modo avion / hotspot / VPN).
+    Verifica que la nueva IP no este bloqueada antes de continuar."""
+    for intento in range(1, intentos_max + 1):
+        print(f"\n{'!'*70}")
+        print(f"  TU IP ESTA BLOQUEADA POR AKAMAI (intento {intento}/{intentos_max})")
+        print(f"{'!'*70}")
+        print(f"  Como cambiar IP en datos moviles (15 segundos):")
+        print(f"    1. Activa MODO AVION en tu celular o PC con datos moviles")
+        print(f"    2. Espera 5 segundos")
+        print(f"    3. Desactiva modo avion")
+        print(f"    4. Espera 5-10 segundos a que reconecte")
+        print(f"  Cuando termines, vuelve aqui y presiona Enter.")
+        try:
+            input(f"\n  [Enter] cuando hayas cambiado de red  (Ctrl+C para cancelar): ")
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n  [!] Cancelado por usuario.")
+            return False
+        print(f"  Verificando nueva IP...")
+        libre, msg = _ip_libre(session)
+        print(f"    {msg}")
+        if libre:
+            print(f"  [OK] IP nueva detectada, continuando reintento...")
+            time.sleep(2)
+            return True
+        print(f"  [X] La nueva IP tambien esta bloqueada.")
+        if intento < intentos_max:
+            print(f"  Probemos otra vez: cambia a OTRA red (otro hotspot, VPN, etc.)")
+    print(f"\n  [X] Despues de {intentos_max} intentos no logramos una IP libre.")
+    return False
+
+
 def _retry_bloqueados(session: requests.Session, filas_bloq: list[dict],
                        workers_original: int) -> None:
     """Reintenta los HEADs que dieron BLOCKED_NO_ETAG tras refrescar la sesion.
-    Usa menos workers para no irritar a Akamai de nuevo."""
+    Si la IP esta bloqueada, ofrece pausar para cambiar de red (modo avion)."""
     if not filas_bloq:
         return
     print(f"\n  [!] {len(filas_bloq)} archivos bloqueados por Akamai (sin ETag).")
-    print(f"      Refrescando cookie ak_bmsc y reintentando con menos workers...")
+    print(f"      Refrescando cookie ak_bmsc...")
 
-    # Tirar cookie envenenada y hacer warmup nuevo
-    session.cookies.clear()
-    try:
-        rw = session.get(f"{BASE}/", headers=HEADERS_WARMUP, timeout=60)
-        cookies = ",".join(c.name for c in session.cookies) or "(ninguna)"
-        print(f"      warmup HTTP {rw.status_code}  cookies={cookies}")
-    except requests.RequestException as e:
-        print(f"      WARMUP FAIL: {e}  -- no se puede reintentar")
-        return
-    time.sleep(3)  # pausa para que Akamai baje el bot-score
+    libre, msg = _ip_libre(session)
+    print(f"      {msg}")
+    if not libre:
+        # IP marcada -> ofrecer cambio de red
+        if not _esperar_cambio_de_red(session):
+            print(f"      Saltando reintento; las filas bloqueadas quedan asi en el manifest.")
+            return
+    else:
+        time.sleep(3)  # pausa para que Akamai baje el bot-score
 
     workers_retry = max(2, workers_original // 4)
     print(f"      Reintentando con {workers_retry} workers (vs {workers_original} originales)")
@@ -280,11 +326,13 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
             n_cookies = len(session.cookies)
             print(f"        warmup OK  cookies={n_cookies}")
             if n_cookies == 0:
+                # Akamai esta bloqueando esta IP. Ofrecer cambio de red.
                 print(f"        [!] Akamai NO entrego cookie ak_bmsc -> tu IP esta BLOQUEADA.")
-                print(f"        [!] Saltando consulta al servidor (todos quedaran sin ETag).")
-                print(f"        [!] Ejecuta: python diagnosticar_akamai.py")
-                print(f"        [!] y aplica una de las soluciones (esperar / VPN / hotspot).")
-                sin_red = True
+                if _esperar_cambio_de_red(session):
+                    print(f"        [OK] Continuando con la nueva IP.")
+                else:
+                    print(f"        [!] Saltando consulta al servidor.")
+                    sin_red = True
         except requests.RequestException as e:
             print(f"        WARMUP FAIL: {e}  -- columnas servidor_* quedaran vacias")
             sin_red = True
