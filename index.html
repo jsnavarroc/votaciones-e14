@@ -570,6 +570,36 @@
     tienes la línea base criptográfica nacional completa. El cache permite
     interrupciones y reanudaciones sin perder progreso.
   </p>
+
+  <h3><i class="bi bi-stopwatch"></i> Tiempos medidos en producción</h3>
+  <p>
+    Estimación a velocidad sostenida de <strong>3 req/s</strong>:
+    <code>tiempo_minutos = mesas / 180</code>. Los datos son reales, capturados
+    durante el barrido del 22 de junio 2026.
+  </p>
+  <table>
+    <tr>
+      <th>Departamento</th>
+      <th>Mesas</th>
+      <th>Tiempo estimado</th>
+      <th>Tiempo medido</th>
+    </tr>
+    <tr><td>Vaupés</td><td>60</td><td>20 s</td><td><strong>20 s</strong> ✓</td></tr>
+    <tr><td>Vichada</td><td>119</td><td>40 s</td><td>—</td></tr>
+    <tr><td>Caldas</td><td>2.476</td><td>14 min</td><td>—</td></tr>
+    <tr><td>Cauca</td><td>3.271</td><td>18 min</td><td>—</td></tr>
+    <tr><td>Atlántico</td><td>5.989</td><td>33 min</td><td>—</td></tr>
+    <tr><td>Valle</td><td>10.873</td><td>1 h</td><td>—</td></tr>
+    <tr><td>Antioquia</td><td>15.402</td><td>1 h 25 min</td><td><strong>1 h 25 min</strong> ✓</td></tr>
+    <tr><td>Bogotá D.C.</td><td>17.001</td><td>1 h 35 min</td><td>—</td></tr>
+    <tr><td><strong>Nacional (los 34)</strong></td><td><strong>117.959</strong></td><td><strong>~11 horas</strong></td><td>—</td></tr>
+  </table>
+  <p style="font-size: 0.9rem; color: var(--fg-soft);">
+    <i class="bi bi-info-circle"></i>
+    Velocidad <strong>NO escala</strong> con más workers — el rate limit
+    global es la garantía de que Akamai no marque la IP. Mejor dejarlo a 3 req/s
+    estable que arriesgar bloqueo y reintento.
+  </p>
   <div class="callout">
     <i class="bi bi-info-circle"></i>
     <strong>Importante:</strong> esta técnica solo accede al contenido público
