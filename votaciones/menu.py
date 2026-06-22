@@ -19,6 +19,19 @@ from votaciones.config import PDFS_DIR, REPORTES_DIR, safe_dir
 from votaciones.datos import cargar_indices, listar_departamentos
 
 
+class _Volver(Exception):
+    """Senalar que el usuario eligio volver al menu anterior."""
+    pass
+
+
+def _ask_or_back(question):
+    """Ejecuta questionary.ask() y lanza _Volver si el usuario cancela (Ctrl+C/Esc)."""
+    r = question.ask()
+    if r is None:
+        raise _Volver
+    return r
+
+
 def _banner() -> None:
     print()
     print("=" * 50)
@@ -106,6 +119,8 @@ def _menu_acciones(dept_code: str, dept_name: str) -> str:
             _accion_imagenes(dept_code)
         elif accion == "cambios":
             _accion_cambios(dept_code)
+    except _Volver:
+        print("\n[<-] Volviendo al menu de acciones...")
     except KeyboardInterrupt:
         print("\nInterrumpido por el usuario.")
     except Exception:
@@ -128,44 +143,54 @@ def _workers_sugeridos(tipo: str) -> tuple[int, int, int]:
     return recom, maximo, cores
 
 
+_BACK = "__back__"
+
+
 def _preguntar_workers(tipo: str = "io") -> int:
     recom, maximo, cores = _workers_sugeridos(tipo)
     descripcion = "I/O (red)" if tipo == "io" else "CPU (procesamiento)"
     print(f"\n  Tu PC tiene {cores} nucleos.  Tarea: {descripcion}.")
-    sel = questionary.select(
+    sel = _ask_or_back(questionary.select(
         "Workers paralelos:",
         choices=[
             Choice(f"Recomendado: {recom}  (rapido y seguro)", recom),
             Choice(f"Maximo seguro: {maximo}", maximo),
-            Choice("Personalizado...", None),
+            Choice("Personalizado...", "__custom__"),
+            Choice("← Volver al menu anterior", _BACK),
         ],
-    ).ask()
-    if sel is None:
-        sel_str = questionary.text(
+    ))
+    if sel == _BACK:
+        raise _Volver
+    if sel == "__custom__":
+        sel_str = _ask_or_back(questionary.text(
             f"Cuantos workers? (1-{maximo * 2})",
             default=str(recom),
             validate=lambda x: x.isdigit() and 1 <= int(x) <= maximo * 2,
-        ).ask()
+        ))
         sel = int(sel_str)
     return int(sel)
 
 
 def _preguntar_modo(default_prueba: str = "5") -> int | None:
-    """Pregunta si correr modo prueba (N) o todo. Devuelve None=todo, int=N."""
-    modo = questionary.select(
+    """Pregunta si correr modo prueba (N) o todo. Devuelve None=todo, int=N.
+    Lanza _Volver si el usuario elige volver."""
+    modo = _ask_or_back(questionary.select(
         "Como quieres correrlo?",
         choices=[
             Choice("Probar primero con unos pocos (recomendado la primera vez)", "prueba"),
             Choice("Procesar TODO", "todo"),
+            Choice("← Volver al menu anterior", _BACK),
         ],
-    ).ask()
+    ))
+    if modo == _BACK:
+        raise _Volver
     if modo != "prueba":
         return None
-    n = questionary.text(
+    n = _ask_or_back(questionary.text(
         "Cuantos?",
         default=default_prueba,
         validate=lambda x: x.isdigit() and int(x) > 0,
-    ).ask()
+    ))
     return int(n)
 
 
@@ -190,30 +215,38 @@ def _accion_inventario(dept_code: str) -> None:
 
 def _accion_imagenes(dept_code: str) -> None:
     prueba = _preguntar_modo(default_prueba="3")
-    fmt = questionary.select("Formato:", choices=[
+    fmt = _ask_or_back(questionary.select("Formato:", choices=[
         Choice("JPG (mas liviano, recomendado)", "jpg"),
         Choice("PNG (sin perdida, pesa 4x mas)", "png"),
-    ]).ask()
-    dpi = int(questionary.select("DPI:", choices=[
+        Choice("← Volver al menu anterior", _BACK),
+    ]))
+    if fmt == _BACK: raise _Volver
+    dpi_str = _ask_or_back(questionary.select("DPI:", choices=[
         Choice("200 (default)", "200"),
         Choice("250 (recomendado para OCR)", "250"),
         Choice("300 (maxima calidad)", "300"),
-    ]).ask())
-    stitch = questionary.confirm(
+        Choice("← Volver al menu anterior", _BACK),
+    ]))
+    if dpi_str == _BACK: raise _Volver
+    dpi = int(dpi_str)
+    stitch = _ask_or_back(questionary.confirm(
         "Stitch (todas las paginas en UNA imagen por PDF)?", default=True,
-    ).ask()
+    ))
     horizontal = False
     if stitch:
-        horizontal = questionary.confirm(
+        horizontal = _ask_or_back(questionary.confirm(
             "Stitch HORIZONTAL (paginas al lado)? Si=al lado, No=apiladas verticalmente",
             default=True,
-        ).ask()
-    rotar = int(questionary.select("Rotar?", choices=[
+        ))
+    rotar_str = _ask_or_back(questionary.select("Rotar?", choices=[
         Choice("Sin rotar", "0"),
         Choice("90 grados a la izquierda (recomendado, queda apaisado)", "90"),
         Choice("180 grados", "180"),
         Choice("270 grados", "270"),
-    ]).ask())
+        Choice("← Volver al menu anterior", _BACK),
+    ]))
+    if rotar_str == _BACK: raise _Volver
+    rotar = int(rotar_str)
     workers = _preguntar_workers("cpu")
     imagenes.ejecutar(
         dept_code, dpi=dpi, fmt=fmt, workers=workers, prueba=prueba,
@@ -312,30 +345,38 @@ def _bulk_inventario(deptos: list[dict]) -> None:
 
 def _bulk_imagenes(deptos: list[dict]) -> None:
     prueba = _preguntar_modo(default_prueba="3")
-    fmt = questionary.select("Formato:", choices=[
+    fmt = _ask_or_back(questionary.select("Formato:", choices=[
         Choice("JPG (mas liviano, recomendado)", "jpg"),
         Choice("PNG (sin perdida, pesa 4x mas)", "png"),
-    ]).ask()
-    dpi = int(questionary.select("DPI:", choices=[
+        Choice("← Volver al menu anterior", _BACK),
+    ]))
+    if fmt == _BACK: raise _Volver
+    dpi_str = _ask_or_back(questionary.select("DPI:", choices=[
         Choice("200 (default)", "200"),
         Choice("250 (recomendado para OCR)", "250"),
         Choice("300 (maxima calidad)", "300"),
-    ]).ask())
-    stitch = questionary.confirm(
+        Choice("← Volver al menu anterior", _BACK),
+    ]))
+    if dpi_str == _BACK: raise _Volver
+    dpi = int(dpi_str)
+    stitch = _ask_or_back(questionary.confirm(
         "Stitch (todas las paginas en UNA imagen por PDF)?", default=True,
-    ).ask()
+    ))
     horizontal = False
     if stitch:
-        horizontal = questionary.confirm(
+        horizontal = _ask_or_back(questionary.confirm(
             "Stitch HORIZONTAL (paginas al lado)? Si=al lado, No=apiladas verticalmente",
             default=True,
-        ).ask()
-    rotar = int(questionary.select("Rotar?", choices=[
+        ))
+    rotar_str = _ask_or_back(questionary.select("Rotar?", choices=[
         Choice("Sin rotar", "0"),
         Choice("90 grados a la izquierda (queda apaisado)", "90"),
         Choice("180 grados", "180"),
         Choice("270 grados", "270"),
-    ]).ask())
+        Choice("← Volver al menu anterior", _BACK),
+    ]))
+    if rotar_str == _BACK: raise _Volver
+    rotar = int(rotar_str)
     workers = _preguntar_workers("cpu")
     if not _confirmar_bulk(deptos, "PDFs a imagenes"):
         return
@@ -384,6 +425,8 @@ def _menu_acciones_bulk(deptos: list[dict], titulo: str) -> str:
         elif accion == "inventario": _bulk_inventario(deptos)
         elif accion == "imagenes":   _bulk_imagenes(deptos)
         elif accion == "cambios":    _bulk_cambios(deptos)
+    except _Volver:
+        print("\n[<-] Volviendo al menu de acciones...")
     except KeyboardInterrupt:
         print("\n[!] Cancelado.")
     except Exception:
