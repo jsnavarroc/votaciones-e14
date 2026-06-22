@@ -42,6 +42,16 @@ def _elegir_departamento() -> tuple[str, str] | None:
     tree, _ = cargar_indices()
     lista = listar_departamentos(tree)
     choices = []
+    # Opciones especiales nacionales al inicio
+    choices.append(Choice(
+        title="  *** TODOS - Inventario nacional (linea base de los 34 territorios) ***",
+        value=("__ALL_INVENTARIO__", "TODOS"),
+    ))
+    choices.append(Choice(
+        title="  *** TOP 4 - Solo grandes: Bogota, Antioquia, Valle, Cundinamarca ***",
+        value=("__TOP4_INVENTARIO__", "TOP4"),
+    ))
+    choices.append(Choice(title="  -----", value=("__SEP__", "")))
     for d in lista:
         folder = PDFS_DIR / safe_dir(d["name"])
         n_pdfs = sum(1 for _ in folder.rglob("*.pdf")) if folder.exists() else 0
@@ -55,6 +65,9 @@ def _elegir_departamento() -> tuple[str, str] | None:
         choices=choices,
         instruction="(flechas + enter)",
     ).ask()
+    # Si eligieron el separador, ignorar
+    if seleccion and seleccion[0] == "__SEP__":
+        return _elegir_departamento()
     return seleccion
 
 
@@ -212,6 +225,64 @@ def _accion_cambios(dept_code: str) -> None:
     cambios.ejecutar(dept_code, solo_cambios=solo)
 
 
+# IDs de departamento Bogota, Antioquia, Valle, Cundinamarca (los 4 grandes)
+_TOP4 = ["16", "01", "31", "15"]
+
+
+def _inventario_bulk(codes: list[str], titulo: str) -> None:
+    """Ejecuta paso3 sobre una lista de departamentos secuencialmente."""
+    import time
+    tree, _ = cargar_indices()
+    lista = listar_departamentos(tree)
+    deptos = [d for d in lista if d["code"] in codes]
+    total_mesas = "?"  # informativo no se calcula a priori
+
+    print(f"\n>>> {titulo}")
+    print(f"    Departamentos a procesar: {len(deptos)}")
+    for d in deptos:
+        print(f"      {d['code']}  {d['name']}  ({d['municipios']} mun)")
+    print(f"\n    El inventario NO descarga PDFs; solo captura ETag/version-id")
+    print(f"    del servidor para tener linea base de integridad.")
+
+    workers = _preguntar_workers("io")
+    if not questionary.confirm(f"\nConfirmas ejecutar inventario sobre los {len(deptos)} departamentos?",
+                                default=True).ask():
+        print("Cancelado.")
+        return
+
+    t_total = time.time()
+    fallidos: list[str] = []
+    for i, d in enumerate(deptos, 1):
+        print(f"\n{'='*70}")
+        print(f"[{i}/{len(deptos)}]  {d['name']}  (codigo {d['code']})")
+        print(f"{'='*70}")
+        t0 = time.time()
+        try:
+            rc = inventario.ejecutar(d["code"], workers=workers, sin_red=False)
+            if rc != 0:
+                fallidos.append(f"{d['code']} {d['name']} (rc={rc})")
+        except KeyboardInterrupt:
+            print(f"\nInterrumpido por usuario en {d['name']}.")
+            print(f"Procesados: {i-1}/{len(deptos)}.")
+            break
+        except Exception as e:
+            print(f"\nERROR en {d['name']}: {e}")
+            fallidos.append(f"{d['code']} {d['name']}: {e!s:.80}")
+        print(f"\n[{i}/{len(deptos)}] {d['name']} - tomo {time.time()-t0:.0f}s")
+
+    dt = time.time() - t_total
+    print(f"\n{'#'*70}")
+    print(f"TERMINADO: {len(deptos)} departamentos en {dt:.0f}s ({dt/60:.1f} min)")
+    print(f"{'#'*70}")
+    if fallidos:
+        print(f"\nFallos ({len(fallidos)}):")
+        for f in fallidos:
+            print(f"  - {f}")
+    else:
+        print(f"\nTodos los departamentos procesados correctamente.")
+    questionary.press_any_key_to_continue("\nPresiona una tecla para volver al menu...").ask()
+
+
 def main() -> int:
     _banner()
     if not _asegurar_indices():
@@ -222,6 +293,17 @@ def main() -> int:
         if sel is None:
             return 0
         dept_code, dept_name = sel
+
+        # Opciones especiales de inventario bulk
+        if dept_code == "__ALL_INVENTARIO__":
+            tree, _ = cargar_indices()
+            all_codes = [d["code"] for d in listar_departamentos(tree)]
+            _inventario_bulk(all_codes, "INVENTARIO NACIONAL (34 territorios)")
+            continue
+        if dept_code == "__TOP4_INVENTARIO__":
+            _inventario_bulk(_TOP4, "INVENTARIO TOP 4 (Bogota, Antioquia, Valle, Cundinamarca)")
+            continue
+
         while True:
             r = _menu_acciones(dept_code, dept_name)
             if r == "salir":
