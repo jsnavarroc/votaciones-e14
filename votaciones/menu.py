@@ -54,10 +54,14 @@ def _asegurar_indices() -> bool:
 def _elegir_departamento() -> tuple[str, str] | None:
     tree, _ = cargar_indices()
     lista = listar_departamentos(tree)
+    # Para badges, cuento cuantos departamentos tienen observaciones
+    deptos_con_obs = sum(1 for d in lista if _obs_count(d["name"]) > 0)
+
     choices = []
     # Opciones especiales bulk al inicio
     choices.append(Choice(
-        title="  *** TODOS - Procesar los 34 territorios ***",
+        title=f"  *** TODOS - Procesar los 34 territorios "
+              f"(podras DESMARCAR los que ya hiciste, {deptos_con_obs} ya tienen datos) ***",
         value=("__BULK_ALL__", "TODOS"),
     ))
     choices.append(Choice(
@@ -287,15 +291,62 @@ def _accion_cambios(dept_code: str) -> None:
 _TOP4 = ["16", "01", "31", "15"]
 
 
+def _obs_count(dept_name: str) -> int:
+    """Cuenta lineas del manifest_<DEPTO>.jsonl si existe."""
+    p = REPORTES_DIR / safe_dir(dept_name) / f"manifest_{safe_dir(dept_name)}.jsonl"
+    if not p.exists():
+        return 0
+    try:
+        with p.open(encoding="utf-8") as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return 0
+
+
 def _seleccion_bulk(tipo: str) -> tuple[list[dict], str]:
-    """Devuelve (deptos, titulo) para los modos bulk."""
+    """Devuelve (deptos, titulo) para los modos bulk.
+    Usa checkbox con todos pre-marcados: el usuario puede DESMARCAR los que
+    ya tiene listos para no reprocesarlos."""
     tree, _ = cargar_indices()
     lista = listar_departamentos(tree)
+
     if tipo == "ALL":
-        return lista, "TODOS (34 territorios)"
-    if tipo == "TOP4":
-        return [d for d in lista if d["code"] in _TOP4], "TOP 4 grandes"
-    return [], ""
+        candidatos = lista
+        titulo_base = "TODOS"
+    elif tipo == "TOP4":
+        candidatos = [d for d in lista if d["code"] in _TOP4]
+        titulo_base = "TOP 4"
+    else:
+        return [], ""
+
+    if len(candidatos) <= 1:
+        return candidatos, titulo_base
+
+    # Mostrar conteo de observaciones del manifest para ayudar a decidir
+    print(f"\n>>> Selecciona los departamentos a procesar")
+    print(f"    [Espacio] marca/desmarca  |  [Enter] confirmar")
+    print(f"    Por defecto TODOS estan marcados. Desmarca los que ya tienes listos.")
+    print(f"    Mostramos cuantas observaciones tiene cada uno en su manifest.\n")
+
+    choices = []
+    for d in candidatos:
+        n = _obs_count(d["name"])
+        marca = f"  ({n:>5} obs en manifest)" if n else "  (sin observaciones)"
+        choices.append(questionary.Choice(
+            title=f"  {d['code']}  {d['name']:<28} mun={d['municipios']:>3}{marca}",
+            value=d,
+            checked=True,  # todos pre-marcados
+        ))
+
+    sel = questionary.checkbox(
+        f"Departamentos a procesar (de {len(candidatos)}):",
+        choices=choices,
+    ).ask()
+
+    if not sel:
+        return [], ""
+    titulo = f"{titulo_base} ({len(sel)}/{len(candidatos)} seleccionados)"
+    return sel, titulo
 
 
 def _confirmar_bulk(deptos: list[dict], accion_str: str) -> bool:
