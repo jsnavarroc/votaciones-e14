@@ -230,7 +230,8 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
 
     if not sin_red:
         t0 = time.time()
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
             futs = {pool.submit(_head_servidor, session, fila["url"]): fila for fila in filas}
             done = 0
             total = len(futs)
@@ -242,6 +243,12 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
                     dt_ = time.time() - t0
                     vel = done / dt_ if dt_ else 0
                     print(f"        {done}/{total}  ({vel:.1f}/s)")
+        except KeyboardInterrupt:
+            print(f"\n  [!] Cancelado por usuario. Deteniendo workers...")
+            pool.shutdown(wait=False, cancel_futures=True)
+            print(f"  [!] Se guardara lo procesado hasta ahora ({done}/{total} archivos).")
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     verificado_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     manifest_path = rep_depto / f"manifest_{safe_dir(dept_name)}.jsonl"

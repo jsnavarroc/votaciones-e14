@@ -80,7 +80,8 @@ def ejecutar(dept_code: str, *, workers: int = 10, prueba: int | None = None) ->
     ok = fail = skip = err = 0
     t0 = time.time()
     primeros_fail: list[str] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = [
             pool.submit(_descargar_uno, session, t, PDFS_DIR, mun_map, dept_name)
             for t in transmisiones
@@ -104,6 +105,12 @@ def ejecutar(dept_code: str, *, workers: int = 10, prueba: int | None = None) ->
                 dt = time.time() - t0
                 vel = i / dt if dt else 0
                 print(f"  {i}/{total}  ok={ok} skip={skip} fail={fail} err={err}  ({vel:.1f}/s)")
+    except KeyboardInterrupt:
+        print(f"\n[!] Cancelado por usuario. Deteniendo descargas...")
+        pool.shutdown(wait=False, cancel_futures=True)
+        print(f"[!] Procesados: {ok+skip+fail+err}/{total}.")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     print(f"\nTerminado en {time.time() - t0:.1f}s.")
     print(f"  ok={ok}  skip={skip}  fail={fail}  err={err}")

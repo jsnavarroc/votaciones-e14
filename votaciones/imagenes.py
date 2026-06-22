@@ -163,7 +163,8 @@ def ejecutar(dept_code: str, *, dpi: int = 200, fmt: str = "png",
     paginas_total = 0
     primeros_fail: list[str] = []
     t0 = time.time()
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = [
             pool.submit(_convertir_pdf, p, pdf_root, out_root, dpi, fmt,
                         solo_pagina, stitch, rotar, horizontal)
@@ -183,6 +184,12 @@ def ejecutar(dept_code: str, *, dpi: int = 200, fmt: str = "png",
                 dt = time.time() - t0
                 vel = i / dt if dt else 0
                 print(f"  {i}/{total}  ok={ok} skip={skip} pdf_invalido={inv} fail={fail}  ({vel:.1f}/s)")
+    except KeyboardInterrupt:
+        print(f"\n[!] Cancelado por usuario. Deteniendo conversion...")
+        pool.shutdown(wait=False, cancel_futures=True)
+        print(f"[!] Procesados: {ok+skip+inv+fail}/{total}.")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     print(f"\nTerminado en {time.time() - t0:.1f}s.")
     print(f"  ok={ok}  skip={skip}  pdf_invalido={inv}  fail={fail}")
