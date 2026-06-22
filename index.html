@@ -252,6 +252,27 @@
   .callout i { color: var(--orange); }
   nav.toc a:hover { color: var(--primary-soft); }
   table a, section a:not(.badge) { color: var(--primary); }
+
+  /* Video responsive 16:9 */
+  .video-wrap {
+    position: relative;
+    padding-bottom: 56.25%;
+    height: 0;
+    margin: 28px 0;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #000;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  .video-wrap iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
 </style>
 </head>
 <body>
@@ -264,6 +285,7 @@
   </p>
   <div class="badges">
     <a href="https://github.com/jsnavarroc/votaciones-e14" class="badge"><i class="bi bi-github"></i> Repositorio</a>
+    <a href="#video" class="badge"><i class="bi bi-play-circle"></i> Video demo</a>
     <a href="#instalacion" class="badge"><i class="bi bi-rocket-takeoff"></i> Cómo usarlo</a>
     <a href="#integridad" class="badge"><i class="bi bi-fingerprint"></i> Integridad</a>
     <a href="#estadisticas" class="badge"><i class="bi bi-bar-chart"></i> Estadísticas</a>
@@ -276,12 +298,13 @@
   <strong><i class="bi bi-list-ul"></i> Contenido</strong>
   <ul>
     <li><a href="#que-es">¿Qué es esto?</a></li>
+    <li><a href="#video">Video demo</a></li>
     <li><a href="#para-que">¿Para qué se hizo?</a></li>
-    <li><a href="#estadisticas">Estadísticas del proceso electoral</a></li>
+    <li><a href="#estadisticas">Dimensión del proceso electoral</a></li>
     <li><a href="#como-funciona">¿Cómo funciona?</a></li>
     <li><a href="#integridad">Verificación de integridad oficial</a></li>
     <li><a href="#instalacion">Instalación y uso</a></li>
-    <li><a href="#autor">¿Quién lo hizo?</a></li>
+    <li><a href="#autor">¿Quién lo mantiene?</a></li>
   </ul>
 </nav>
 
@@ -297,6 +320,27 @@
     Las actas E-14 son los formularios que firman los jurados de votación al cierre de cada mesa,
     donde se consignan los votos por cada candidato, los votos en blanco, nulos y no marcados.
     Son la fuente primaria del escrutinio electoral.
+  </p>
+</section>
+
+<section id="video">
+  <h2><i class="bi bi-play-circle"></i> Video demo</h2>
+  <p>
+    Recorrido completo del menú interactivo: cómo descargar las actas E-14 de un departamento,
+    generar el Excel con la verificación de integridad y detectar cambios entre corridas.
+  </p>
+  <div class="video-wrap">
+    <iframe
+      src="https://www.youtube.com/embed/Ol7KC50mpjs"
+      title="votaciones-e14 - Demo del pipeline"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen></iframe>
+  </div>
+  <p style="font-size: 0.9rem; text-align: center;">
+    <a href="https://youtu.be/Ol7KC50mpjs" target="_blank" rel="noopener">
+      <i class="bi bi-youtube"></i> Ver en YouTube
+    </a>
   </p>
 </section>
 

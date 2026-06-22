@@ -1,10 +1,19 @@
 # 🗳️ votaciones-e14
 
 **🌐 Sitio web:** <https://jsnavarroc.github.io/votaciones-e14/>
+**🎥 Video demo:** <https://youtu.be/Ol7KC50mpjs>
 
 Pipeline en Python para descargar, validar y procesar masivamente las **actas E-14** (escrutinio de jurados de votación) publicadas por la Registraduría Nacional de Colombia — Segunda Vuelta Presidencial 2026.
 
 Pensado para **auditoría ciudadana**: descarga todas las actas de un departamento, captura las huellas criptográficas oficiales del servidor (S3 ETag + version-id + Last-Modified) en cada corrida y detecta automáticamente si la Registraduría modifica un archivo después de tu primera descarga.
+
+---
+
+## 🎥 Video demo
+
+[![Demo del pipeline votaciones-e14](https://img.youtube.com/vi/Ol7KC50mpjs/maxresdefault.jpg)](https://youtu.be/Ol7KC50mpjs)
+
+> Click en la imagen para ver cómo funciona el menú interactivo paso por paso en YouTube.
 
 ---
 
