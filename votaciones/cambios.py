@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from votaciones.config import REPORTES_DIR, safe_dir
+from votaciones.config import REPORTES_DIR, reportes_dir_depto, safe_dir
 from votaciones.datos import buscar_departamento, cargar_indices
 
 
@@ -19,11 +19,19 @@ def _detectar_cambio(observaciones: list[dict]) -> dict:
     primera = observaciones[0]["servidor"]
     ultima = observaciones[-1]["servidor"]
     razones = []
-    for campo in ("etag", "last_modified", "version_id", "content_length"):
+    # Señales confiables de cambio real en el servidor (S3)
+    for campo in ("etag", "version_id", "last_modified"):
         v1 = primera.get(campo, "")
         v2 = ultima.get(campo, "")
         if v1 and v2 and v1 != v2:
             razones.append(f"{campo}: {v1!r} -> {v2!r}")
+    # content_length puede variar entre HEAD (tamaño completo) y GET-Range (1 byte)
+    # del paso3. Solo lo consideramos si el ETag tambien cambio (cambio real).
+    etag_cambio = any(r.startswith("etag:") for r in razones)
+    cl1 = primera.get("content_length", "")
+    cl2 = ultima.get("content_length", "")
+    if etag_cambio and cl1 and cl2 and cl1 != cl2:
+        razones.append(f"content_length: {cl1!r} -> {cl2!r}")
     return {
         "cambio": bool(razones),
         "razones": razones,
@@ -42,7 +50,13 @@ def _detectar_cambio(observaciones: list[dict]) -> dict:
 def ejecutar(dept_code: str, *, solo_cambios: bool = False) -> int:
     tree, _ = cargar_indices()
     dept_name, _ = buscar_departamento(tree, dept_code)
-    manifest_path = REPORTES_DIR / f"manifest_{safe_dir(dept_name)}.jsonl"
+    rep_depto = reportes_dir_depto(dept_name)
+    # Buscar manifest primero en la subcarpeta nueva, fallback al plano legacy
+    manifest_path = rep_depto / f"manifest_{safe_dir(dept_name)}.jsonl"
+    if not manifest_path.exists():
+        legacy = REPORTES_DIR / f"manifest_{safe_dir(dept_name)}.jsonl"
+        if legacy.exists():
+            manifest_path = legacy
     if not manifest_path.exists():
         print(f"No existe {manifest_path}.")
         print(f"Necesitas correr 'Generar inventario' al menos DOS veces antes.")
@@ -128,8 +142,8 @@ def ejecutar(dept_code: str, *, solo_cambios: bool = False) -> int:
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
 
-    REPORTES_DIR.mkdir(parents=True, exist_ok=True)
-    out = REPORTES_DIR / f"cambios_{safe_dir(dept_name)}.xlsx"
+    rep_depto.mkdir(parents=True, exist_ok=True)
+    out = rep_depto / f"cambios_{safe_dir(dept_name)}.xlsx"
     wb.save(out)
     print(f"\nReporte: {out}")
     return 0 if not cambios else 2

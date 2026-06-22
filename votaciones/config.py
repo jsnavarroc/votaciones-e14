@@ -58,3 +58,13 @@ HEADERS_JSON = {
 def safe_dir(s: str) -> str:
     """Normaliza un string a nombre de carpeta filesystem-safe."""
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in s).strip("._") or "SIN_NOMBRE"
+
+
+def indices_dir_depto(dept_name: str) -> "Path":
+    """Subcarpeta de indices para un departamento (extractos del catalogo)."""
+    return INDICES_DIR / safe_dir(dept_name)
+
+
+def reportes_dir_depto(dept_name: str) -> "Path":
+    """Subcarpeta de reportes para un departamento (xlsx, jsonl, etc.)."""
+    return REPORTES_DIR / safe_dir(dept_name)

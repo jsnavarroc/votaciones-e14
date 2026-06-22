@@ -14,7 +14,8 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from votaciones.config import (
-    BASE, HEADERS_PDF, HEADERS_WARMUP, PDFS_DIR, REPORTES_DIR, safe_dir,
+    BASE, HEADERS_PDF, HEADERS_WARMUP, INDICES_DIR, PDFS_DIR, REPORTES_DIR,
+    indices_dir_depto, reportes_dir_depto, safe_dir,
 )
 from votaciones.datos import (
     buscar_departamento, cargar_indices, transmisiones_del_depto,
@@ -60,20 +61,56 @@ def _ruta_local(t: dict, dept_name: str, mun_map: dict) -> Path:
     return dest_dir / fname
 
 
+def _migrar_legacy(dept_name: str) -> None:
+    """Mueve archivos legacy planos a la subcarpeta por departamento.
+    No borra nada, solo mueve si existe el archivo legacy y NO existe el destino."""
+    import shutil
+    nombre = safe_dir(dept_name)
+    rep_depto = reportes_dir_depto(dept_name)
+    legacy = [
+        (REPORTES_DIR / f"inventario_{nombre}.xlsx", rep_depto / f"inventario_{nombre}.xlsx"),
+        (REPORTES_DIR / f"manifest_{nombre}.jsonl",  rep_depto / f"manifest_{nombre}.jsonl"),
+        (REPORTES_DIR / f"cambios_{nombre}.xlsx",    rep_depto / f"cambios_{nombre}.xlsx"),
+    ]
+    for src, dst in legacy:
+        if src.exists() and not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.move(str(src), str(dst))
+                print(f"  [migrado] {src.name} -> {dst}")
+            except OSError as e:
+                print(f"  [warning] No se pudo migrar {src.name}: {e}")
+
+
 def _head_servidor(session: requests.Session, url: str, timeout: float = 30.0) -> dict:
+    """Hace HEAD para capturar headers de integridad. Si HEAD da error usa GET
+    con Range, pero entonces el Content-Length viene de Content-Range (tamaño
+    real) y NO del header Content-Length (que reflejaria solo el rango pedido)."""
     try:
         r = session.head(url, headers=HEADERS_PDF, timeout=timeout, allow_redirects=True)
-        if r.status_code != 200:
+        usado_range = False
+        if r.status_code not in (200, 301, 302):
             r = session.get(url, headers={**HEADERS_PDF, "Range": "bytes=0-0"},
                             timeout=timeout, stream=True)
             r.close()
+            usado_range = True
         h = r.headers
+        # Para GET con Range, el Content-Length refleja solo el rango pedido
+        # (ej. "1" para bytes=0-0). El tamaño real esta en Content-Range:
+        # "bytes 0-0/56636" -> 56636. Lo extraemos para mantener consistencia.
+        cl = h.get("Content-Length", "")
+        if usado_range:
+            cr = h.get("Content-Range", "")
+            if "/" in cr:
+                tamano_real = cr.rsplit("/", 1)[-1].strip()
+                if tamano_real and tamano_real != "*":
+                    cl = tamano_real
         return {
             "http_status": r.status_code,
             "etag": (h.get("ETag") or "").strip('"').lstrip("W/").strip('"'),
             "last_modified": h.get("Last-Modified", ""),
             "version_id": h.get("x-amz-version-id", ""),
-            "content_length": h.get("Content-Length", ""),
+            "content_length": cl,
         }
     except requests.RequestException as e:
         return {"http_status": "ERROR", "etag": "", "last_modified": "",
@@ -98,7 +135,11 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
         print("No hay transmisiones para este departamento.")
         return 2
 
-    REPORTES_DIR.mkdir(parents=True, exist_ok=True)
+    # Carpetas por departamento (sin borrar lo existente, solo migrar)
+    rep_depto = reportes_dir_depto(dept_name)
+    rep_depto.mkdir(parents=True, exist_ok=True)
+    _migrar_legacy(dept_name)
+
     wb = Workbook()
     ws = wb.active
     ws.title = safe_dir(dept_name)[:30] or "Inventario"
@@ -179,7 +220,7 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
                     print(f"        {done}/{total}  ({vel:.1f}/s)")
 
     verificado_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    manifest_path = REPORTES_DIR / f"manifest_{safe_dir(dept_name)}.jsonl"
+    manifest_path = rep_depto / f"manifest_{safe_dir(dept_name)}.jsonl"
     with manifest_path.open("a", encoding="utf-8") as manifest:
         for fila in filas:
             t = fila["t"]
@@ -263,8 +304,21 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
     ws2.column_dimensions["C"].width = 14
 
     if out is None:
-        out = REPORTES_DIR / f"inventario_{safe_dir(dept_name)}.xlsx"
+        out = rep_depto / f"inventario_{safe_dir(dept_name)}.xlsx"
     wb.save(out)
+
+    # Tambien guardar un extracto del catalogo del departamento en indices/<DEPTO>/
+    ind_depto = indices_dir_depto(dept_name)
+    ind_depto.mkdir(parents=True, exist_ok=True)
+    extracto = {
+        "departamento": dept_name,
+        "codigo": dept_code,
+        "generado_utc": verificado_utc,
+        "total_mesas": len(transmisiones),
+        "transmisiones": transmisiones,
+    }
+    (ind_depto / "transmisiones.json").write_text(
+        json.dumps(extracto, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"\nOK   : {contadores['OK']:>5}")
     print(f"FALTA: {contadores['FALTA']:>5}")
