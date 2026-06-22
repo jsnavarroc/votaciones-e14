@@ -449,7 +449,7 @@
     <div class="paso">
       <div class="num">3</div>
       <h4><i class="bi bi-file-earmark-excel"></i> Excel + integridad</h4>
-      <p>Calcula MD5/SHA-256 locales y consulta los hashes oficiales del servidor.</p>
+      <p>Calcula MD5/SHA-256 locales y consulta los hashes oficiales del servidor. También funciona sin descargar PDFs (línea base nacional).</p>
     </div>
     <div class="paso">
       <div class="num">4</div>
@@ -462,6 +462,32 @@
       <p>Compara dos corridas del paso 3 y reporta archivos modificados.</p>
     </div>
   </div>
+
+  <h3><i class="bi bi-globe-americas"></i> Modo nacional (línea base de los 34 territorios)</h3>
+  <p>
+    El menú interactivo ofrece una opción especial <code>*** TODOS - Inventario nacional ***</code>
+    que ejecuta el paso 3 sobre los 34 departamentos (incluyendo consulados) sin descargar los
+    PDFs — solo captura los headers de integridad oficiales. Es la forma más rápida y liviana
+    de tener una <strong>línea base criptográfica nacional</strong> de las ~118.000 mesas:
+  </p>
+  <ul style="color: var(--fg);">
+    <li>Tiempo total: 3-4 horas con 16 workers.</li>
+    <li>Espacio: ~50 MB de manifests JSONL (no 100+ GB de PDFs).</li>
+    <li>Si la Registraduría modifica una sola acta después, queda registrado.</li>
+  </ul>
+  <p>
+    También hay una opción intermedia <code>TOP 4 - Bogotá, Antioquia, Valle, Cundinamarca</code>
+    que cubre el 50% de las mesas nacionales en ~1 hora.
+  </p>
+
+  <h3><i class="bi bi-shield-lock"></i> Garantías de no perder evidencia</h3>
+  <table>
+    <tr><th>Archivo</th><th>Comportamiento</th></tr>
+    <tr><td><code>manifest_&lt;DEPTO&gt;.jsonl</code></td><td><strong>Append-only.</strong> Cada corrida solo agrega líneas con timestamp UTC. El historial completo siempre crece.</td></tr>
+    <tr><td><code>inventario_&lt;DEPTO&gt;.xlsx</code></td><td>Se respalda automáticamente a <code>reportes/&lt;DEPTO&gt;/backups/</code> antes de sobrescribir.</td></tr>
+    <tr><td><code>cambios_&lt;DEPTO&gt;.xlsx</code></td><td>Se respalda automáticamente antes de sobrescribir.</td></tr>
+    <tr><td>PDFs descargados</td><td>Idempotente — los archivos ya descargados nunca se re-descargan ni borran.</td></tr>
+  </table>
 
   <h3>Stack técnico</h3>
   <table>
@@ -544,8 +570,11 @@ python build_exe.py
 ==================================================
 
 ? Departamento:
-  > 11  CAUCA           mun= 42  (2486 PDFs descargados)
+  > *** TODOS - Inventario nacional (linea base de los 34 territorios) ***
+    *** TOP 4 - Solo grandes: Bogota, Antioquia, Valle, Cundinamarca ***
+    -----
     01  ANTIOQUIA       mun=125  (sin descargar)
+    11  CAUCA           mun= 42  (2486 PDFs descargados)
     ...
 
 ? Accion para CAUCA (11):
@@ -572,6 +601,8 @@ python -m votaciones.descargar 11 --prueba 5               # modo prueba
 python -m votaciones.descargar 11 --workers 16             # mas paralelismo
 
 # 3. Generar el Excel de inventario + capturar integridad del servidor
+#    (incluso si no descargaste los PDFs primero, captura igual los headers
+#     ETag/version-id/Last-Modified -> ideal para linea base nacional)
 python -m votaciones.inventario 11
 python -m votaciones.inventario 11 --workers 16
 python -m votaciones.inventario 11 --sin-red               # solo validacion local
