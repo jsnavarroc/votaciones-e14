@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>votaciones-e14 | Auditoría ciudadana de actas E-14</title>
+<meta name="description" content="Pipeline en Python para descargar masivamente las actas E-14 de la Registraduría Nacional de Colombia y detectar modificaciones en el servidor — Segunda Vuelta Presidencial 2026.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --fg: #c9d1d9;
+    --fg-strong: #f0f6fc;
+    --fg-soft: #8b949e;
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --bg-card: #1a2029;
+    --primary: #58a6ff;
+    --primary-soft: #79c0ff;
+    --primary-dark: #1f6feb;
+    --accent: #f85149;
+    --green: #3fb950;
+    --orange: #d29922;
+    --border: #30363d;
+    --code-bg: #161b22;
+    --warn-bg: #2a2110;
+    --warn-border: #d29922;
+  }
+  ::selection { background: var(--primary-dark); color: var(--fg-strong); }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.65;
+    margin: 0;
+    padding: 0;
+  }
+  header {
+    background:
+      radial-gradient(ellipse at top, rgba(88,166,255,0.18) 0%, transparent 60%),
+      linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+    color: var(--fg-strong);
+    padding: 70px 24px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  header h1 i { color: var(--primary); }
+  header h1 {
+    margin: 0 0 12px;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  header .tagline {
+    font-size: 1.15rem;
+    opacity: 0.92;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header .badges {
+    margin-top: 24px;
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .badge {
+    background: rgba(88,166,255,0.10);
+    border: 1px solid rgba(88,166,255,0.35);
+    padding: 7px 16px;
+    border-radius: 14px;
+    font-size: 0.85rem;
+    color: var(--primary-soft);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .badge:hover { background: rgba(88,166,255,0.20); border-color: var(--primary); }
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 48px 24px;
+  }
+  nav.toc {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 24px;
+    margin-bottom: 48px;
+  }
+  nav.toc strong { display: block; margin-bottom: 8px; color: var(--fg-soft); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  nav.toc ul { margin: 0; padding-left: 18px; }
+  nav.toc a { color: var(--primary); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  section { margin-bottom: 56px; }
+  h2 {
+    font-size: 1.7rem;
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 8px;
+    margin-top: 0;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h3 { color: var(--fg-strong); margin-top: 28px; }
+  p { color: var(--fg); }
+  strong { color: var(--fg-strong); }
+  em { color: var(--fg-strong); font-style: normal; background: rgba(210,153,34,0.12); padding: 0 4px; border-radius: 3px; }
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.9em;
+    font-family: "SF Mono", "Consolas", "Monaco", monospace;
+    color: #ff7b72;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  pre code { background: none; border: none; padding: 0; color: var(--fg-strong); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.95rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { background: var(--bg-soft); font-weight: 600; }
+  .callout {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--warn-border);
+    padding: 14px 20px;
+    margin: 24px 0;
+    border-radius: 4px;
+  }
+  .callout strong { color: var(--fg); }
+
+  /* Stats KPIs */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin: 28px 0;
+  }
+  .kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    text-align: center;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .kpi:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .kpi i { font-size: 1.6rem; color: var(--primary); }
+  .kpi .num {
+    font-size: 2.1rem;
+    font-weight: 700;
+    color: var(--fg-strong);
+    margin: 6px 0 2px;
+    line-height: 1.1;
+  }
+  .kpi .lbl { font-size: 0.78rem; color: var(--fg-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+  .kpi.alerta .num { color: var(--accent); }
+  .kpi.ok .num { color: var(--green); }
+
+  /* Charts */
+  .chart-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .chart-card h3 { margin-top: 0; display: flex; align-items: center; gap: 8px; }
+  .chart-card h3 i { color: var(--primary); }
+  .chart-card .sub { font-size: 0.85rem; color: var(--fg-soft); margin-top: -8px; margin-bottom: 16px; }
+  .chart-wrap {
+    position: relative;
+    height: 380px;
+  }
+  .chart-wrap.tall { height: 520px; }
+  @media (max-width: 600px) { .chart-wrap.tall { height: 700px; } }
+
+  /* Pasos cards */
+  .pasos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .paso {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    transition: border-color .15s ease;
+  }
+  .paso:hover { border-color: var(--primary); }
+  .paso .num {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+    text-align: center;
+    background: var(--primary-dark);
+    color: var(--fg-strong);
+    border-radius: 50%;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .paso h4 { margin: 4px 0 8px; font-size: 1.05rem; color: var(--fg-strong); }
+  .paso p { margin: 0; font-size: 0.9rem; }
+  .paso i { color: var(--primary); margin-right: 6px; }
+
+  .autor {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-top: 16px;
+  }
+  .autor h3 { margin-top: 0; color: var(--fg-strong); }
+  .autor a { color: var(--primary); font-weight: 500; }
+  footer {
+    border-top: 1px solid var(--border);
+    background: var(--bg-soft);
+    padding: 32px 24px;
+    text-align: center;
+    color: var(--fg-soft);
+    font-size: 0.85rem;
+  }
+  footer a { color: var(--primary); margin: 0 8px; text-decoration: none; }
+  footer a:hover { text-decoration: underline; color: var(--primary-soft); }
+  .callout { color: var(--fg); }
+  .callout i { color: var(--orange); }
+  nav.toc a:hover { color: var(--primary-soft); }
+  table a, section a:not(.badge) { color: var(--primary); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><i class="bi bi-shield-check"></i> votaciones-e14</h1>
+  <p class="tagline">
+    Auditoría ciudadana de las actas E-14 de la Registraduría Nacional<br>
+    Segunda Vuelta Presidencial — Colombia 2026
+  </p>
+  <div class="badges">
+    <a href="https://github.com/jsnavarroc/votaciones-e14" class="badge"><i class="bi bi-github"></i> Repositorio</a>
+    <a href="#instalacion" class="badge"><i class="bi bi-rocket-takeoff"></i> Cómo usarlo</a>
+    <a href="#integridad" class="badge"><i class="bi bi-fingerprint"></i> Integridad</a>
+    <a href="#estadisticas" class="badge"><i class="bi bi-bar-chart"></i> Estadísticas</a>
+  </div>
+</header>
+
+<main>
+
+<nav class="toc">
+  <strong><i class="bi bi-list-ul"></i> Contenido</strong>
+  <ul>
+    <li><a href="#que-es">¿Qué es esto?</a></li>
+    <li><a href="#para-que">¿Para qué se hizo?</a></li>
+    <li><a href="#estadisticas">Estadísticas del proceso electoral</a></li>
+    <li><a href="#como-funciona">¿Cómo funciona?</a></li>
+    <li><a href="#integridad">Verificación de integridad oficial</a></li>
+    <li><a href="#instalacion">Instalación y uso</a></li>
+    <li><a href="#autor">¿Quién lo hizo?</a></li>
+  </ul>
+</nav>
+
+<section id="que-es">
+  <h2><i class="bi bi-info-circle"></i> ¿Qué es esto?</h2>
+  <p>
+    <strong>votaciones-e14</strong> es un pipeline de software libre escrito en Python que permite a cualquier ciudadano
+    descargar masivamente las <strong>actas E-14</strong> publicadas por la Registraduría Nacional del Estado Civil,
+    validarlas, convertirlas a imágenes y — lo más importante — <strong>verificar que la Registraduría
+    no modifique los archivos después de publicarlos</strong>.
+  </p>
+  <p>
+    Las actas E-14 son los formularios que firman los jurados de votación al cierre de cada mesa,
+    donde se consignan los votos por cada candidato, los votos en blanco, nulos y no marcados.
+    Son la fuente primaria del escrutinio electoral.
+  </p>
+</section>
+
+<section id="para-que">
+  <h2><i class="bi bi-bullseye"></i> ¿Para qué se hizo?</h2>
+  <p>
+    En junio de 2026, durante el proceso electoral de la Segunda Vuelta Presidencial,
+    surgió una polémica pública entre el gobierno y la Registraduría Nacional sobre la
+    <strong>integridad de los formularios E-14</strong>. El gobierno denunció que podrían
+    estarse modificando actas después de publicadas; la Registraduría afirmó que su
+    sistema de <em>candado hash</em> y <em>estampilla de tiempo</em> garantizaba la integridad
+    de cada archivo.
+  </p>
+  <p>
+    Este proyecto nació para resolver esa pregunta de forma <strong>técnica, verificable
+    y reproducible</strong>: si descargas hoy un acta y mañana la Registraduría la cambia,
+    el pipeline lo detecta automáticamente comparando los hashes oficiales de Amazon S3
+    (donde están almacenadas) entre las dos corridas.
+  </p>
+  <div class="callout">
+    <i class="bi bi-exclamation-triangle"></i> <strong>Importante:</strong> esta herramienta no acusa ni absuelve a nadie.
+    Solo proporciona evidencia técnica reproducible. La conclusión la saca quien analiza los reportes.
+  </div>
+</section>
+
+<section id="estadisticas">
+  <h2><i class="bi bi-bar-chart"></i> Estadísticas del proceso electoral</h2>
+  <p>
+    Datos extraídos del catálogo oficial de la Registraduría
+    (<code>allTransmissionCodes.json</code>) al momento de la última corrida del pipeline.
+  </p>
+
+  <div class="kpi-grid">
+    <div class="kpi">
+      <i class="bi bi-grid-3x3-gap"></i>
+      <div class="num" id="kpi-mesas">—</div>
+      <div class="lbl">Mesas a nivel nacional</div>
+    </div>
+    <div class="kpi ok">
+      <i class="bi bi-check2-circle"></i>
+      <div class="num" id="kpi-pub">—</div>
+      <div class="lbl">Actas publicadas</div>
+    </div>
+    <div class="kpi alerta">
+      <i class="bi bi-hourglass-split"></i>
+      <div class="num" id="kpi-pend">—</div>
+      <div class="lbl">Actas pendientes</div>
+    </div>
+    <div class="kpi">
+      <i class="bi bi-flag"></i>
+      <div class="num" id="kpi-deptos">34</div>
+      <div class="lbl">Departamentos + Consulados</div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <h3><i class="bi bi-pie-chart"></i> Cobertura nacional</h3>
+    <p class="sub">Porcentaje de actas E-14 publicadas vs aún sin publicar.</p>
+    <div class="chart-wrap">
+      <canvas id="chart-cobertura"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <h3><i class="bi bi-bar-chart-line"></i> Mesas por departamento (todos)</h3>
+    <p class="sub">Cantidad total de mesas registradas en el sistema, por departamento.</p>
+    <div class="chart-wrap tall">
+      <canvas id="chart-deptos"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <h3><i class="bi bi-stack"></i> Top 10: publicadas vs pendientes</h3>
+    <p class="sub">Los 10 departamentos con más mesas y cómo se reparten entre las ya publicadas (verde) y las pendientes (rojo).</p>
+    <div class="chart-wrap">
+      <canvas id="chart-top10"></canvas>
+    </div>
+  </div>
+</section>
+
+<section id="como-funciona">
+  <h2><i class="bi bi-gear"></i> ¿Cómo funciona?</h2>
+  <p>El pipeline tiene 5 pasos accesibles desde un menú interactivo:</p>
+
+  <div class="pasos">
+    <div class="paso">
+      <div class="num">1</div>
+      <h4><i class="bi bi-download"></i> Descargar índices</h4>
+      <p>Baja el catálogo maestro de mesas en JSON (~36 MB).</p>
+    </div>
+    <div class="paso">
+      <div class="num">2</div>
+      <h4><i class="bi bi-file-earmark-pdf"></i> Descargar PDFs</h4>
+      <p>Descarga en paralelo todas las actas de un departamento.</p>
+    </div>
+    <div class="paso">
+      <div class="num">3</div>
+      <h4><i class="bi bi-file-earmark-excel"></i> Excel + integridad</h4>
+      <p>Calcula MD5/SHA-256 locales y consulta los hashes oficiales del servidor.</p>
+    </div>
+    <div class="paso">
+      <div class="num">4</div>
+      <h4><i class="bi bi-image"></i> PDF a imagen</h4>
+      <p>Convierte los PDFs a JPG/PNG para análisis con OCR / IA de visión.</p>
+    </div>
+    <div class="paso">
+      <div class="num">5</div>
+      <h4><i class="bi bi-search"></i> Detectar cambios</h4>
+      <p>Compara dos corridas del paso 3 y reporta archivos modificados.</p>
+    </div>
+  </div>
+
+  <h3>Stack técnico</h3>
+  <table>
+    <tr><th>Componente</th><th>Tecnología</th></tr>
+    <tr><td>Portal de origen</td><td>Angular SPA + Akamai CDN</td></tr>
+    <tr><td>Almacenamiento del archivo</td><td>Amazon S3 con versionado</td></tr>
+    <tr><td>Lenguaje del pipeline</td><td>Python 3.10+</td></tr>
+    <tr><td>Descargas paralelas</td><td><code>requests</code> + <code>ThreadPoolExecutor</code></td></tr>
+    <tr><td>Render PDF</td><td><code>PyMuPDF</code> + <code>Pillow</code></td></tr>
+    <tr><td>Reportes</td><td><code>openpyxl</code> (Excel multi-hoja)</td></tr>
+    <tr><td>Interfaz</td><td><code>questionary</code> (CLI interactiva)</td></tr>
+    <tr><td>Visualizaciones</td><td><code>Chart.js 4</code> vía jsDelivr CDN</td></tr>
+    <tr><td>Iconos</td><td><code>Bootstrap Icons 1.11</code> vía jsDelivr CDN</td></tr>
+    <tr><td>Distribución</td><td>Script Python o ejecutable <code>.exe</code> (PyInstaller)</td></tr>
+  </table>
+</section>
+
+<section id="integridad">
+  <h2><i class="bi bi-fingerprint"></i> Verificación de integridad oficial</h2>
+  <p>
+    La Registraduría almacena las actas en Amazon S3 con versionado activado. En cada descarga,
+    el servidor devuelve en los headers HTTP tres valores que constituyen la huella técnica
+    oficial del archivo:
+  </p>
+  <table>
+    <tr><th>Header HTTP</th><th>Qué garantiza</th></tr>
+    <tr><td><code>ETag</code></td><td>MD5 oficial del archivo en S3 (cambia si modifican el contenido)</td></tr>
+    <tr><td><code>Last-Modified</code></td><td>Timestamp de la última subida al bucket</td></tr>
+    <tr><td><code>x-amz-version-id</code></td><td>Identificador único de versión S3 (cambia si re-suben)</td></tr>
+  </table>
+  <p>
+    El paso 3 captura los tres valores cada vez que se ejecuta y los guarda en un
+    <code>manifest_&lt;DEPTO&gt;.jsonl</code> append-only con timestamp UTC.
+    El paso 5 compara las observaciones entre corridas y reporta cualquier cambio.
+  </p>
+  <div class="callout">
+    <i class="bi bi-info-circle"></i> <strong>Limitación honesta:</strong> el CDN cachea los archivos hasta 7 días.
+    Una modificación reciente puede tardar en propagarse a todos los edge nodes.
+    Por eso conviene correr el paso 3 varias veces, en momentos distintos del día.
+  </div>
+</section>
+
+<section id="instalacion">
+  <h2><i class="bi bi-rocket-takeoff"></i> Instalación y uso</h2>
+
+  <h3><i class="bi bi-1-circle"></i> Opción A — Script de Python (requiere Python 3.10+)</h3>
+<pre><code>git clone https://github.com/jsnavarroc/votaciones-e14.git
+cd votaciones-e14
+pip install -r requirements.txt
+python -m votaciones.menu</code></pre>
+
+  <h3><i class="bi bi-2-circle"></i> Opción B — Ejecutable Windows (.exe)</h3>
+<pre><code>pip install pyinstaller
+python build_exe.py
+# Resultado: dist/votaciones.exe — corre en cualquier Windows sin Python</code></pre>
+
+  <h3><i class="bi bi-terminal"></i> Una vez abierto, el menú te guía</h3>
+<pre><code>==================================================
+  Pipeline E-14 - Segunda Vuelta Presidencial 2026
+==================================================
+
+? Departamento:
+  > 11  CAUCA           mun= 42  (2486 PDFs descargados)
+    01  ANTIOQUIA       mun=125  (sin descargar)
+    ...
+
+? Accion para CAUCA (11):
+  > 1) Descargar PDFs
+    2) Generar Excel + integridad
+    3) Convertir PDFs a imagenes
+    4) Detectar cambios
+    5) Cambiar departamento
+    0) Salir</code></pre>
+</section>
+
+<section id="autor">
+  <h2><i class="bi bi-people"></i> Mantenimiento abierto</h2>
+  <div class="autor">
+    <h3><i class="bi bi-github"></i> Proyecto iniciado por <a href="https://github.com/jsnavarroc">@jsnavarroc</a></h3>
+    <p>
+      Este pipeline es un punto de partida. La idea es que la <strong>comunidad de
+      desarrolladores</strong> lo audite, lo mejore, lo extienda a otros departamentos,
+      le agregue detección automática de enmendaduras, OCR de los votos, dashboards
+      en tiempo real, o cualquier otra cosa útil para la transparencia electoral.
+    </p>
+    <p>
+      Está publicado bajo licencia <strong>MIT</strong>: código abierto, libre de usar,
+      modificar y redistribuir. Cualquier ciudadano puede ejecutar el pipeline,
+      verificar los resultados o contribuir mejoras vía pull request en GitHub.
+    </p>
+    <p style="margin-top: 20px;">
+      <a href="https://github.com/jsnavarroc/votaciones-e14" class="badge" style="background: rgba(63,185,80,0.10); border-color: rgba(63,185,80,0.4); color: #3fb950;">
+        <i class="bi bi-git"></i> Contribuir en GitHub
+      </a>
+      &nbsp;
+      <a href="https://github.com/jsnavarroc/votaciones-e14/issues" class="badge" style="background: rgba(210,153,34,0.10); border-color: rgba(210,153,34,0.4); color: #d29922;">
+        <i class="bi bi-bug"></i> Reportar problema
+      </a>
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>
+    <a href="https://github.com/jsnavarroc/votaciones-e14"><i class="bi bi-github"></i> Código</a>·
+    <a href="https://github.com/jsnavarroc/votaciones-e14/blob/main/README.md">README</a>·
+    <a href="https://github.com/jsnavarroc/votaciones-e14/blob/main/GUIA.md">Guía</a>·
+    <a href="https://github.com/jsnavarroc/votaciones-e14/blob/main/HALLAZGOS.md">Hallazgos técnicos</a>·
+    <a href="https://github.com/jsnavarroc/votaciones-e14/blob/main/LICENSE">Licencia MIT</a>
+  </p>
+  <p>&copy; 2026 <a href="https://github.com/jsnavarroc">@jsnavarroc</a> y contribuyentes &middot; Aporte a la transparencia electoral &middot; Datos: Registraduría Nacional</p>
+</footer>
+
+<script>
+// =========== Datos (snapshot al momento del build) ===========
+const TOTAL_MESAS    = 117959;
+const TOTAL_PUBLICAS = 478;
+const TOTAL_PENDIENT = 117481;
+
+const DEPTOS = [
+  {code:"16", name:"BOGOTA D.C.",    total:17001, publicados:9,  pendientes:16992},
+  {code:"01", name:"ANTIOQUIA",      total:15402, publicados:43, pendientes:15359},
+  {code:"31", name:"VALLE",          total:10873, publicados:19, pendientes:10854},
+  {code:"15", name:"CUNDINAMARCA",   total:6777,  publicados:2,  pendientes:6775},
+  {code:"03", name:"ATLANTICO",      total:5989,  publicados:0,  pendientes:5989},
+  {code:"27", name:"SANTANDER",      total:5488,  publicados:68, pendientes:5420},
+  {code:"05", name:"BOLIVAR",        total:5209,  publicados:34, pendientes:5175},
+  {code:"25", name:"NORTE DE SAN.",  total:3972,  publicados:93, pendientes:3879},
+  {code:"13", name:"CORDOBA",        total:3797,  publicados:3,  pendientes:3794},
+  {code:"23", name:"NARIÑO",         total:3666,  publicados:19, pendientes:3647},
+  {code:"29", name:"TOLIMA",         total:3415,  publicados:3,  pendientes:3412},
+  {code:"11", name:"CAUCA",          total:3271,  publicados:22, pendientes:3249},
+  {code:"88", name:"CONSULADOS",     total:3264,  publicados:59, pendientes:3205},
+  {code:"21", name:"MAGDALENA",      total:3169,  publicados:8,  pendientes:3161},
+  {code:"07", name:"BOYACA",         total:3103,  publicados:4,  pendientes:3099},
+  {code:"19", name:"HUILA",          total:2696,  publicados:34, pendientes:2662},
+  {code:"12", name:"CESAR",          total:2642,  publicados:6,  pendientes:2636},
+  {code:"24", name:"RISARALDA",      total:2532,  publicados:0,  pendientes:2532},
+  {code:"52", name:"META",           total:2490,  publicados:8,  pendientes:2482},
+  {code:"09", name:"CALDAS",         total:2476,  publicados:8,  pendientes:2468},
+  {code:"28", name:"SUCRE",          total:2291,  publicados:0,  pendientes:2291},
+  {code:"48", name:"LA GUAJIRA",     total:1810,  publicados:3,  pendientes:1807},
+  {code:"26", name:"QUINDIO",        total:1471,  publicados:0,  pendientes:1471},
+  {code:"17", name:"CHOCO",          total:1022,  publicados:3,  pendientes:1019},
+  {code:"46", name:"CASANARE",       total:970,   publicados:1,  pendientes:969},
+  {code:"44", name:"CAQUETA",        total:935,   publicados:14, pendientes:921},
+  {code:"64", name:"PUTUMAYO",       total:771,   publicados:0,  pendientes:771},
+  {code:"40", name:"ARAUCA",         total:648,   publicados:0,  pendientes:648},
+  {code:"54", name:"GUAVIARE",       total:214,   publicados:2,  pendientes:212},
+  {code:"56", name:"SAN ANDRES",     total:156,   publicados:0,  pendientes:156},
+  {code:"60", name:"AMAZONAS",       total:151,   publicados:0,  pendientes:151},
+  {code:"72", name:"VICHADA",        total:119,   publicados:8,  pendientes:111},
+  {code:"50", name:"GUAINIA",        total:109,   publicados:4,  pendientes:105},
+  {code:"68", name:"VAUPES",         total:60,    publicados:1,  pendientes:59},
+];
+
+// =========== KPIs ===========
+const fmt = n => n.toLocaleString("es-CO");
+document.getElementById("kpi-mesas").textContent = fmt(TOTAL_MESAS);
+document.getElementById("kpi-pub").textContent   = fmt(TOTAL_PUBLICAS);
+document.getElementById("kpi-pend").textContent  = fmt(TOTAL_PENDIENT);
+
+// =========== Chart.js defaults para modo dark ===========
+const DARK_FG     = "#c9d1d9";
+const DARK_FG_SO  = "#8b949e";
+const DARK_GRID   = "#21262d";
+const DARK_BG     = "#1a2029";
+Chart.defaults.color = DARK_FG;
+Chart.defaults.borderColor = DARK_GRID;
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+Chart.defaults.plugins.tooltip.backgroundColor = "#0d1117";
+Chart.defaults.plugins.tooltip.titleColor = "#f0f6fc";
+Chart.defaults.plugins.tooltip.bodyColor = DARK_FG;
+Chart.defaults.plugins.tooltip.borderColor = "#30363d";
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.padding = 10;
+
+// =========== Chart 1: Cobertura (donut) ===========
+new Chart(document.getElementById("chart-cobertura"), {
+  type: "doughnut",
+  data: {
+    labels: ["Publicadas", "Pendientes"],
+    datasets: [{
+      data: [TOTAL_PUBLICAS, TOTAL_PENDIENT],
+      backgroundColor: ["#3fb950", "#f85149"],
+      borderColor: DARK_BG,
+      borderWidth: 3,
+      hoverOffset: 10,
+    }],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "bottom" },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const v = ctx.raw;
+            const pct = (v / TOTAL_MESAS * 100).toFixed(2);
+            return `${ctx.label}: ${fmt(v)} (${pct}%)`;
+          },
+        },
+      },
+    },
+  },
+});
+
+// =========== Chart 2: mesas por departamento (todos) ===========
+const sortedAll = [...DEPTOS].sort((a, b) => b.total - a.total);
+new Chart(document.getElementById("chart-deptos"), {
+  type: "bar",
+  data: {
+    labels: sortedAll.map(d => d.name),
+    datasets: [{
+      label: "Mesas",
+      data: sortedAll.map(d => d.total),
+      backgroundColor: "#1f6feb",
+      hoverBackgroundColor: "#58a6ff",
+      borderRadius: 4,
+    }],
+  },
+  options: {
+    indexAxis: "y",
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: { label: ctx => `${fmt(ctx.raw)} mesas` },
+      },
+    },
+    scales: {
+      x: {
+        ticks: { callback: v => fmt(v), color: DARK_FG_SO },
+        grid: { color: DARK_GRID },
+        border: { color: DARK_GRID },
+      },
+      y: {
+        ticks: { font: { size: 10 }, color: DARK_FG },
+        grid: { display: false },
+        border: { color: DARK_GRID },
+      },
+    },
+  },
+});
+
+// =========== Chart 3: top 10 publicadas vs pendientes ===========
+const top10 = sortedAll.slice(0, 10);
+new Chart(document.getElementById("chart-top10"), {
+  type: "bar",
+  data: {
+    labels: top10.map(d => d.name),
+    datasets: [
+      {
+        label: "Publicadas",
+        data: top10.map(d => d.publicados),
+        backgroundColor: "#3fb950",
+        hoverBackgroundColor: "#56d364",
+        borderRadius: 3,
+        stack: "s1",
+      },
+      {
+        label: "Pendientes",
+        data: top10.map(d => d.pendientes),
+        backgroundColor: "#f85149",
+        hoverBackgroundColor: "#ff6e64",
+        borderRadius: 3,
+        stack: "s1",
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "bottom" },
+      tooltip: {
+        callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)}` },
+      },
+    },
+    scales: {
+      x: {
+        stacked: true,
+        grid: { display: false },
+        ticks: { color: DARK_FG },
+        border: { color: DARK_GRID },
+      },
+      y: {
+        stacked: true,
+        ticks: { callback: v => fmt(v), color: DARK_FG_SO },
+        grid: { color: DARK_GRID },
+        border: { color: DARK_GRID },
+      },
+    },
+  },
+});
+</script>
+
+</body>
+</html>

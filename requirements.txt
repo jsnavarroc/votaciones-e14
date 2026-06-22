@@ -1,0 +1,8 @@
+requests>=2.31
+openpyxl>=3.1
+pymupdf>=1.24
+Pillow>=10.0
+questionary>=2.0
+
+# Solo si vas a empaquetar a .exe:
+# pyinstaller>=6.0

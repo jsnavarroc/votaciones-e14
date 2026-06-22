@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "votaciones-e14"
+version = "0.1.0"
+description = "Pipeline para descargar, validar integridad y procesar actas E-14 de la Registraduria Nacional de Colombia (Segunda Vuelta Presidencial 2026)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "jsnavarroc" }]
+keywords = ["registraduria", "elecciones", "colombia", "e14", "votaciones", "integridad"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Topic :: Sociology",
+]
+dependencies = [
+    "requests>=2.31",
+    "openpyxl>=3.1",
+    "pymupdf>=1.24",
+    "Pillow>=10.0",
+    "questionary>=2.0",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[project.scripts]
+votaciones = "votaciones.menu:main"
+
+[project.urls]
+Homepage = "https://github.com/jsnavarroc/votaciones-e14"
+Issues = "https://github.com/jsnavarroc/votaciones-e14/issues"
+
+[tool.setuptools.packages.find]
+include = ["votaciones*"]
