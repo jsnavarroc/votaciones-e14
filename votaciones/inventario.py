@@ -13,6 +13,20 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+# Opcional: curl_cffi impersona el TLS fingerprint de Chrome (evade Akamai Bot Manager)
+try:
+    from curl_cffi import requests as _cffi_requests
+    _USE_CFFI = True
+except ImportError:
+    _USE_CFFI = False
+
+
+def _crear_sesion():
+    """Crea una sesion HTTP. Si curl_cffi esta instalado, impersona Chrome."""
+    if _USE_CFFI:
+        return _cffi_requests.Session(impersonate="chrome120")
+    return requests.Session()
+
 from votaciones.config import (
     BASE, HEADERS_PDF, HEADERS_WARMUP, INDICES_DIR, PDFS_DIR, REPORTES_DIR,
     indices_dir_depto, reportes_dir_depto, safe_dir,
@@ -415,7 +429,13 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
 
     if not sin_red:
         print(f"  [2/2] Consultando {len(filas)} archivos al servidor...")
-        session = requests.Session()
+        if _USE_CFFI:
+            print(f"        usando curl_cffi (impersona TLS de Chrome) - evade Akamai mejor")
+        else:
+            print(f"        usando requests estandar (sin TLS impersonation)")
+            print(f"        TIP: instala curl_cffi para evitar bloqueos de Akamai:")
+            print(f"              pip install curl_cffi")
+        session = _crear_sesion()
         try:
             session.get(f"{BASE}/", headers=HEADERS_WARMUP, timeout=60)
             n_cookies = len(session.cookies)

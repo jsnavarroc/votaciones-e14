@@ -7,6 +7,20 @@ from pathlib import Path
 
 import requests
 
+# Opcional: curl_cffi impersona TLS de Chrome para evadir Akamai Bot Manager
+try:
+    from curl_cffi import requests as _cffi_requests
+    _USE_CFFI = True
+except ImportError:
+    _USE_CFFI = False
+
+
+def _crear_sesion():
+    if _USE_CFFI:
+        return _cffi_requests.Session(impersonate="chrome120")
+    return requests.Session()
+
+
 from votaciones.config import (
     BASE, CORP_MAP, HEADERS_PDF, HEADERS_WARMUP, PDFS_DIR, safe_dir,
 )
@@ -66,8 +80,10 @@ def ejecutar(dept_code: str, *, workers: int = 10, prueba: int | None = None) ->
         print(f"    MODO PRUEBA: solo {len(transmisiones)} mesas")
 
     print(f"\nGuardando en {PDFS_DIR}\n")
+    if _USE_CFFI:
+        print(f"  usando curl_cffi (impersona TLS de Chrome) - evade Akamai mejor")
     PDFS_DIR.mkdir(parents=True, exist_ok=True)
-    session = requests.Session()
+    session = _crear_sesion()
 
     try:
         rw = session.get(f"{BASE}/", headers=HEADERS_WARMUP, timeout=60)
