@@ -117,8 +117,24 @@ def _head_servidor(session: requests.Session, url: str, timeout: float = 30.0) -
                 "version_id": "", "content_length": "", "error": str(e)[:80]}
 
 
+def _respaldar_xlsx_existente(rep_depto: Path, dept_name: str) -> None:
+    """Si ya existe inventario_<DEPTO>.xlsx o cambios_<DEPTO>.xlsx, copialo
+    a reportes/<DEPTO>/backups/<nombre>_<timestamp>.xlsx antes de sobrescribir."""
+    import shutil
+    nombre = safe_dir(dept_name)
+    backups = rep_depto / "backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    for base in (f"inventario_{nombre}.xlsx", f"cambios_{nombre}.xlsx"):
+        src = rep_depto / base
+        if src.exists():
+            dst = backups / f"{src.stem}_{stamp}.xlsx"
+            shutil.copy2(src, dst)
+            print(f"  [respaldo] {src.name} -> backups/{dst.name}")
+
+
 def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
-             out: Path | None = None) -> int:
+             out: Path | None = None, respaldar_xlsx: bool = False) -> int:
     tree, codes = cargar_indices()
     dept_name, mun_map = buscar_departamento(tree, dept_code)
     transmisiones = transmisiones_del_depto(codes, dept_code)
@@ -139,6 +155,8 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
     rep_depto = reportes_dir_depto(dept_name)
     rep_depto.mkdir(parents=True, exist_ok=True)
     _migrar_legacy(dept_name)
+    if respaldar_xlsx:
+        _respaldar_xlsx_existente(rep_depto, dept_name)
 
     wb = Workbook()
     ws = wb.active

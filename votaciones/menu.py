@@ -184,7 +184,9 @@ def _accion_inventario(dept_code: str) -> None:
     workers = 10
     if con_red:
         workers = _preguntar_workers("io")
-    inventario.ejecutar(dept_code, workers=workers, sin_red=not con_red)
+    # respaldar_xlsx=True para no perder vistas anteriores al sobrescribir
+    inventario.ejecutar(dept_code, workers=workers, sin_red=not con_red,
+                        respaldar_xlsx=True)
 
 
 def _accion_imagenes(dept_code: str) -> None:
@@ -230,19 +232,22 @@ _TOP4 = ["16", "01", "31", "15"]
 
 
 def _inventario_bulk(codes: list[str], titulo: str) -> None:
-    """Ejecuta paso3 sobre una lista de departamentos secuencialmente."""
+    """Ejecuta paso3 sobre una lista de departamentos secuencialmente.
+    Respalda los xlsx existentes antes de sobrescribir para preservar historial."""
     import time
     tree, _ = cargar_indices()
     lista = listar_departamentos(tree)
     deptos = [d for d in lista if d["code"] in codes]
-    total_mesas = "?"  # informativo no se calcula a priori
 
     print(f"\n>>> {titulo}")
     print(f"    Departamentos a procesar: {len(deptos)}")
     for d in deptos:
         print(f"      {d['code']}  {d['name']}  ({d['municipios']} mun)")
-    print(f"\n    El inventario NO descarga PDFs; solo captura ETag/version-id")
-    print(f"    del servidor para tener linea base de integridad.")
+    print(f"\n    Garantias para no perder informacion previa:")
+    print(f"      - manifest_<DEPTO>.jsonl es APPEND-ONLY (cero perdida)")
+    print(f"      - inventario_<DEPTO>.xlsx y cambios_<DEPTO>.xlsx se RESPALDAN")
+    print(f"        antes de sobrescribir en: reportes/<DEPTO>/backups/")
+    print(f"    El inventario NO descarga PDFs; solo captura ETag/version-id.")
 
     workers = _preguntar_workers("io")
     if not questionary.confirm(f"\nConfirmas ejecutar inventario sobre los {len(deptos)} departamentos?",
@@ -258,7 +263,8 @@ def _inventario_bulk(codes: list[str], titulo: str) -> None:
         print(f"{'='*70}")
         t0 = time.time()
         try:
-            rc = inventario.ejecutar(d["code"], workers=workers, sin_red=False)
+            rc = inventario.ejecutar(d["code"], workers=workers, sin_red=False,
+                                      respaldar_xlsx=True)
             if rc != 0:
                 fallidos.append(f"{d['code']} {d['name']} (rc={rc})")
         except KeyboardInterrupt:
