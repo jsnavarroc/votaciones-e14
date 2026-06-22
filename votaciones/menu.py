@@ -42,14 +42,14 @@ def _elegir_departamento() -> tuple[str, str] | None:
     tree, _ = cargar_indices()
     lista = listar_departamentos(tree)
     choices = []
-    # Opciones especiales nacionales al inicio
+    # Opciones especiales bulk al inicio
     choices.append(Choice(
-        title="  *** TODOS - Inventario nacional (linea base de los 34 territorios) ***",
-        value=("__ALL_INVENTARIO__", "TODOS"),
+        title="  *** TODOS - Procesar los 34 territorios ***",
+        value=("__BULK_ALL__", "TODOS"),
     ))
     choices.append(Choice(
-        title="  *** TOP 4 - Solo grandes: Bogota, Antioquia, Valle, Cundinamarca ***",
-        value=("__TOP4_INVENTARIO__", "TOP4"),
+        title="  *** TOP 4 - Solo grandes (Bogota, Antioquia, Valle, Cundinamarca) ***",
+        value=("__BULK_TOP4__", "TOP 4"),
     ))
     choices.append(Choice(title="  -----", value=("__SEP__", "")))
     for d in lista:
@@ -65,7 +65,6 @@ def _elegir_departamento() -> tuple[str, str] | None:
         choices=choices,
         instruction="(flechas + enter)",
     ).ask()
-    # Si eligieron el separador, ignorar
     if seleccion and seleccion[0] == "__SEP__":
         return _elegir_departamento()
     return seleccion
@@ -231,30 +230,28 @@ def _accion_cambios(dept_code: str) -> None:
 _TOP4 = ["16", "01", "31", "15"]
 
 
-def _inventario_bulk(codes: list[str], titulo: str) -> None:
-    """Ejecuta paso3 sobre una lista de departamentos secuencialmente.
-    Respalda los xlsx existentes antes de sobrescribir para preservar historial."""
-    import time
+def _seleccion_bulk(tipo: str) -> tuple[list[dict], str]:
+    """Devuelve (deptos, titulo) para los modos bulk."""
     tree, _ = cargar_indices()
     lista = listar_departamentos(tree)
-    deptos = [d for d in lista if d["code"] in codes]
+    if tipo == "ALL":
+        return lista, "TODOS (34 territorios)"
+    if tipo == "TOP4":
+        return [d for d in lista if d["code"] in _TOP4], "TOP 4 grandes"
+    return [], ""
 
-    print(f"\n>>> {titulo}")
-    print(f"    Departamentos a procesar: {len(deptos)}")
+
+def _confirmar_bulk(deptos: list[dict], accion_str: str) -> bool:
+    print(f"\n>>> {accion_str.upper()} sobre {len(deptos)} departamentos:")
     for d in deptos:
-        print(f"      {d['code']}  {d['name']}  ({d['municipios']} mun)")
-    print(f"\n    Garantias para no perder informacion previa:")
-    print(f"      - manifest_<DEPTO>.jsonl es APPEND-ONLY (cero perdida)")
-    print(f"      - inventario_<DEPTO>.xlsx y cambios_<DEPTO>.xlsx se RESPALDAN")
-    print(f"        antes de sobrescribir en: reportes/<DEPTO>/backups/")
-    print(f"    El inventario NO descarga PDFs; solo captura ETag/version-id.")
+        print(f"      {d['code']}  {d['name']:<25} ({d['municipios']:>3} mun)")
+    return questionary.confirm("Confirmas?", default=True).ask()
 
-    workers = _preguntar_workers("io")
-    if not questionary.confirm(f"\nConfirmas ejecutar inventario sobre los {len(deptos)} departamentos?",
-                                default=True).ask():
-        print("Cancelado.")
-        return
 
+def _ejecutar_sobre_deptos(deptos: list[dict], accion_str: str, fn_ejecutar) -> None:
+    """Itera fn_ejecutar(depto) sobre cada departamento con feedback de progreso.
+    Captura KeyboardInterrupt para no romper el menu si el usuario aborta."""
+    import time
     t_total = time.time()
     fallidos: list[str] = []
     for i, d in enumerate(deptos, 1):
@@ -263,13 +260,11 @@ def _inventario_bulk(codes: list[str], titulo: str) -> None:
         print(f"{'='*70}")
         t0 = time.time()
         try:
-            rc = inventario.ejecutar(d["code"], workers=workers, sin_red=False,
-                                      respaldar_xlsx=True)
-            if rc != 0:
+            rc = fn_ejecutar(d)
+            if rc not in (None, 0):
                 fallidos.append(f"{d['code']} {d['name']} (rc={rc})")
         except KeyboardInterrupt:
-            print(f"\nInterrumpido por usuario en {d['name']}.")
-            print(f"Procesados: {i-1}/{len(deptos)}.")
+            print(f"\n[!] Interrumpido en {d['name']}. Procesados: {i-1}/{len(deptos)}.")
             break
         except Exception as e:
             print(f"\nERROR en {d['name']}: {e}")
@@ -278,15 +273,123 @@ def _inventario_bulk(codes: list[str], titulo: str) -> None:
 
     dt = time.time() - t_total
     print(f"\n{'#'*70}")
-    print(f"TERMINADO: {len(deptos)} departamentos en {dt:.0f}s ({dt/60:.1f} min)")
+    print(f"TERMINADO {accion_str}: {len(deptos)} deptos en {dt:.0f}s ({dt/60:.1f} min)")
     print(f"{'#'*70}")
     if fallidos:
         print(f"\nFallos ({len(fallidos)}):")
         for f in fallidos:
             print(f"  - {f}")
     else:
-        print(f"\nTodos los departamentos procesados correctamente.")
+        print(f"\nTodos los departamentos completados.")
     questionary.press_any_key_to_continue("\nPresiona una tecla para volver al menu...").ask()
+
+
+def _bulk_descargar(deptos: list[dict]) -> None:
+    prueba = _preguntar_modo(default_prueba="5")
+    workers = _preguntar_workers("io")
+    if not _confirmar_bulk(deptos, "Descargar PDFs"):
+        return
+    _ejecutar_sobre_deptos(
+        deptos, "DESCARGA DE PDFs",
+        lambda d: descargar.ejecutar(d["code"], workers=workers, prueba=prueba),
+    )
+
+
+def _bulk_inventario(deptos: list[dict]) -> None:
+    con_red = questionary.confirm(
+        "Consultar al servidor para capturar ETag/version-id? (recomendado)",
+        default=True,
+    ).ask()
+    workers = _preguntar_workers("io") if con_red else 10
+    if not _confirmar_bulk(deptos, "Generar Excel + integridad"):
+        return
+    _ejecutar_sobre_deptos(
+        deptos, "INVENTARIO + INTEGRIDAD",
+        lambda d: inventario.ejecutar(d["code"], workers=workers,
+                                       sin_red=not con_red, respaldar_xlsx=True),
+    )
+
+
+def _bulk_imagenes(deptos: list[dict]) -> None:
+    prueba = _preguntar_modo(default_prueba="3")
+    fmt = questionary.select("Formato:", choices=[
+        Choice("JPG (mas liviano, recomendado)", "jpg"),
+        Choice("PNG (sin perdida, pesa 4x mas)", "png"),
+    ]).ask()
+    dpi = int(questionary.select("DPI:", choices=[
+        Choice("200 (default)", "200"),
+        Choice("250 (recomendado para OCR)", "250"),
+        Choice("300 (maxima calidad)", "300"),
+    ]).ask())
+    stitch = questionary.confirm(
+        "Stitch (todas las paginas en UNA imagen por PDF)?", default=True,
+    ).ask()
+    horizontal = False
+    if stitch:
+        horizontal = questionary.confirm(
+            "Stitch HORIZONTAL (paginas al lado)? Si=al lado, No=apiladas verticalmente",
+            default=True,
+        ).ask()
+    rotar = int(questionary.select("Rotar?", choices=[
+        Choice("Sin rotar", "0"),
+        Choice("90 grados a la izquierda (queda apaisado)", "90"),
+        Choice("180 grados", "180"),
+        Choice("270 grados", "270"),
+    ]).ask())
+    workers = _preguntar_workers("cpu")
+    if not _confirmar_bulk(deptos, "PDFs a imagenes"):
+        return
+    _ejecutar_sobre_deptos(
+        deptos, "PDF -> IMAGEN",
+        lambda d: imagenes.ejecutar(
+            d["code"], dpi=dpi, fmt=fmt, workers=workers, prueba=prueba,
+            stitch=stitch, rotar=rotar, horizontal=horizontal),
+    )
+
+
+def _bulk_cambios(deptos: list[dict]) -> None:
+    solo = questionary.confirm("Mostrar solo los archivos que cambiaron?", default=False).ask()
+    if not _confirmar_bulk(deptos, "Detectar cambios"):
+        return
+    _ejecutar_sobre_deptos(
+        deptos, "DETECCION DE CAMBIOS",
+        lambda d: cambios.ejecutar(d["code"], solo_cambios=solo),
+    )
+
+
+def _menu_acciones_bulk(deptos: list[dict], titulo: str) -> str:
+    """Menu de acciones para multiples departamentos. Devuelve 'salir' / 'cambiar' / 'continuar'."""
+    accion = questionary.select(
+        f"\nAccion sobre {titulo} ({len(deptos)} departamentos):",
+        choices=[
+            Choice(title="  1) Descargar PDFs                (pesado: muchos GB y horas)",
+                   value="descargar"),
+            Choice(title="  2) Generar Excel + integridad    (rapido y liviano)",
+                   value="inventario"),
+            Choice(title="  3) Convertir PDFs a imagenes",
+                   value="imagenes"),
+            Choice(title="  4) Detectar cambios              (compara corridas anteriores)",
+                   value="cambios"),
+            Choice(title="  5) Cambiar seleccion (otro depto o salir de bulk)",
+                   value="cambiar"),
+            Choice(title="  0) Salir", value="salir"),
+        ],
+    ).ask()
+    if accion in (None, "salir"):
+        return "salir"
+    if accion == "cambiar":
+        return "cambiar"
+    try:
+        if accion == "descargar":   _bulk_descargar(deptos)
+        elif accion == "inventario": _bulk_inventario(deptos)
+        elif accion == "imagenes":   _bulk_imagenes(deptos)
+        elif accion == "cambios":    _bulk_cambios(deptos)
+    except KeyboardInterrupt:
+        print("\n[!] Cancelado.")
+    except Exception:
+        traceback.print_exc()
+        questionary.press_any_key_to_continue("Presiona una tecla...").ask()
+    return "continuar"
 
 
 def main() -> int:
@@ -300,14 +403,17 @@ def main() -> int:
             return 0
         dept_code, dept_name = sel
 
-        # Opciones especiales de inventario bulk
-        if dept_code == "__ALL_INVENTARIO__":
-            tree, _ = cargar_indices()
-            all_codes = [d["code"] for d in listar_departamentos(tree)]
-            _inventario_bulk(all_codes, "INVENTARIO NACIONAL (34 territorios)")
-            continue
-        if dept_code == "__TOP4_INVENTARIO__":
-            _inventario_bulk(_TOP4, "INVENTARIO TOP 4 (Bogota, Antioquia, Valle, Cundinamarca)")
+        # Opciones bulk: van al mismo menu de acciones, pero ejecutan sobre N deptos
+        if dept_code in ("__BULK_ALL__", "__BULK_TOP4__"):
+            tipo = "ALL" if dept_code == "__BULK_ALL__" else "TOP4"
+            deptos, titulo = _seleccion_bulk(tipo)
+            while True:
+                r = _menu_acciones_bulk(deptos, titulo)
+                if r == "salir":
+                    print("\nHasta luego.")
+                    return 0
+                if r == "cambiar":
+                    break
             continue
 
         while True:
