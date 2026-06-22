@@ -4,11 +4,39 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
+
+
+class _RateLimiter:
+    """Token bucket global: limita el RITMO TOTAL de requests (no por worker).
+    Akamai detecta ráfagas; con N workers a 0.5 req/s cada uno son N×0.5 req/s
+    en total. Este limitador asegura un techo global independiente de workers."""
+    def __init__(self, max_per_second: float):
+        self.min_interval = 1.0 / max_per_second if max_per_second > 0 else 0
+        self._next = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        if self.min_interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait = self._next - now
+            if wait < 0:
+                wait = 0
+                self._next = now
+            self._next += self.min_interval
+        if wait > 0:
+            time.sleep(wait)
+
+
+# Rate limit global por sesion de proceso. Akamai tolera ~3 req/s sostenido.
+_RATE = _RateLimiter(max_per_second=3.0)
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -104,6 +132,7 @@ def _head_servidor(session: requests.Session, url: str, timeout: float = 30.0) -
     """Hace HEAD para capturar headers de integridad. Si HEAD da error o un 200
     sin ETag (bloqueo silencioso del CDN / Akamai sirviendo HTML default), usa
     GET con Range. En GET-Range el Content-Length viene de Content-Range."""
+    _RATE.acquire()  # rate limit global: throttle independiente del paralelismo
     try:
         r = session.head(url, headers=HEADERS_PDF, timeout=timeout, allow_redirects=True)
         usado_range = False
@@ -244,14 +273,19 @@ def _esperar_cambio_de_red(session: requests.Session, intentos_max: int = 5) -> 
 
 
 def _heads_en_chunks(session: requests.Session, filas_pendientes: list[dict],
-                      workers: int, chunk_size: int = 500) -> None:
-    """Procesa HEADs en chunks. Entre cada chunk:
-    - mide tasa de bloqueo;
-    - si >30% bloqueado, ofrece cambio de red automáticamente;
-    - pausa de 2s entre chunks normales."""
+                      workers: int, chunk_size: int = 100) -> None:
+    """Procesa HEADs en chunks pequenos con rate limit global.
+
+    Estrategia:
+    - chunks de 100 (no 500) para feedback frecuente y throttling fino;
+    - rate limit global a ~3 req/s independiente del paralelismo;
+    - solo ofrece cambio de red si DOS chunks consecutivos dan >80% bloqueo
+      (Akamai a veces tiene picos transitorios que se autocorrigen).
+    """
     n_total = len(filas_pendientes)
     t_total = time.time()
     procesado = 0
+    chunks_malos_consecutivos = 0  # racha de chunks con >80% bloqueo
     for chunk_start in range(0, n_total, chunk_size):
         chunk = filas_pendientes[chunk_start:chunk_start + chunk_size]
         t_chunk = time.time()
@@ -275,28 +309,39 @@ def _heads_en_chunks(session: requests.Session, filas_pendientes: list[dict],
         n_chunk = len(chunk)
         ok_chunk = n_chunk - bloq
         ratio = bloq / n_chunk if n_chunk else 0
-        dt_chunk = time.time() - t_chunk
         dt_total = time.time() - t_total
         vel = procesado / dt_total if dt_total else 0
         print(f"    chunk {chunk_start+1:>5}-{chunk_start+n_chunk:<5}: "
               f"ok={ok_chunk:>4} bloq={bloq:>4} ({ratio*100:>3.0f}%) "
               f"|  total {procesado:>5}/{n_total}  vel={vel:.1f}/s")
 
-        # Si quedan mas chunks y la tasa de bloqueo es alta, intervenir
+        # Rastrear chunks consecutivos malos
+        if ratio > 0.80:
+            chunks_malos_consecutivos += 1
+        else:
+            chunks_malos_consecutivos = 0
+
         es_ultimo = (chunk_start + chunk_size >= n_total)
-        if not es_ultimo and ratio > 0.30:
-            print(f"    [!] Tasa de bloqueo alta ({ratio*100:.0f}%). Verificando IP...")
+        if es_ultimo:
+            break
+
+        # Solo intervenir si DOS chunks seguidos >80% (irrecuperable sin cambio)
+        if chunks_malos_consecutivos >= 2:
+            print(f"    [!] {chunks_malos_consecutivos} chunks consecutivos con >80% bloqueo.")
             libre, msg = _ip_libre(session)
             print(f"        {msg}")
             if not libre:
                 if not _esperar_cambio_de_red(session):
-                    print(f"    [!] Sin red libre, abandonando resto del chunk-flow.")
-                    break
+                    print(f"    [!] Sin red libre. Continuando con bloqueos; el cache los reintentara despues.")
+                    chunks_malos_consecutivos = 0
+                else:
+                    chunks_malos_consecutivos = 0
             else:
-                print(f"    [!] IP libre pero Akamai filtra agresivo. Pausando 10s...")
-                time.sleep(10)
-        elif not es_ultimo:
-            time.sleep(2)  # respiro entre chunks limpios
+                print(f"    [!] IP libre. Pausa larga de 30s para que Akamai baje el bot-score...")
+                time.sleep(30)
+                chunks_malos_consecutivos = 0
+        # Sin intervencion automatica para tasas medias (30-80%):
+        # el rate limit global se encarga, no se pierde nada.
 
 
 def _retry_bloqueados(session: requests.Session, filas_bloq: list[dict],
@@ -477,7 +522,7 @@ def ejecutar(dept_code: str, *, workers: int = 10, sin_red: bool = False,
 
         if filas_pendientes:
             try:
-                _heads_en_chunks(session, filas_pendientes, workers, chunk_size=500)
+                _heads_en_chunks(session, filas_pendientes, workers, chunk_size=100)
             except KeyboardInterrupt:
                 print(f"\n  [!] Cancelado, guardando lo procesado hasta ahora.")
 
