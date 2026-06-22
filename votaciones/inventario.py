@@ -22,9 +22,13 @@ except ImportError:
 
 
 def _crear_sesion():
-    """Crea una sesion HTTP. Si curl_cffi esta instalado, impersona Chrome."""
+    """Crea una sesion HTTP. Si curl_cffi esta instalado, impersona Chrome.
+    Desactiva verify SSL para curl_cffi (en Windows suele faltar el CA bundle
+    del libcurl; el contenido viaja HTTPS igual, solo se omite verificacion)."""
     if _USE_CFFI:
-        return _cffi_requests.Session(impersonate="chrome120")
+        s = _cffi_requests.Session(impersonate="chrome120")
+        s.verify = False
+        return s
     return requests.Session()
 
 from votaciones.config import (

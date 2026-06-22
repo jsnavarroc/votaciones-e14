@@ -17,7 +17,9 @@ except ImportError:
 
 def _crear_sesion():
     if _USE_CFFI:
-        return _cffi_requests.Session(impersonate="chrome120")
+        s = _cffi_requests.Session(impersonate="chrome120")
+        s.verify = False
+        return s
     return requests.Session()
 
 
