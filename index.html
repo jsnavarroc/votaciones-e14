@@ -543,21 +543,32 @@
     cookie de sesión.
   </p>
   <p>
-    La solución integrada en el pipeline:
+    La solución integrada en el pipeline (6 capas combinadas):
   </p>
   <table>
     <tr><th>Técnica</th><th>Qué hace</th></tr>
     <tr><td><code>curl_cffi</code> + <code>impersonate="chrome131"</code></td><td>Replica el TLS Client Hello exacto de Chrome 131: mismo cipher suite ordering, extensiones TLS, ALPN. Akamai no puede distinguirlo de un navegador real.</td></tr>
-    <tr><td>Workers limitados (4 default, 8 máx)</td><td>Akamai filtra por intensidad además de fingerprint. Con 4 hilos paralelos rara vez activa rate-limit.</td></tr>
-    <tr><td>Chunks de 500 mesas + pausa 2s</td><td>Detecta caída de tasa de éxito en vivo y ofrece cambio de red automático si vuelve a bloquear.</td></tr>
+    <tr><td><strong>Rate limit global de 3 req/s</strong></td><td>Token bucket compartido entre todos los workers. Independiente del paralelismo, el ritmo total sostenido nunca supera 3 req/s — Akamai lo tolera como tráfico "humano-like" y no marca la IP.</td></tr>
+    <tr><td>Workers limitados (4 default)</td><td>El rate limiter hace irrelevante subir workers. 4 es suficiente para HEAD requests cortos.</td></tr>
+    <tr><td>Chunks de 100 mesas con detección en vivo</td><td>Mide tasa de bloqueo por chunk. Solo ofrece cambio de red tras DOS chunks consecutivos con &gt;80% bloqueo (Akamai a veces tiene picos transitorios que se autocorrigen).</td></tr>
     <tr><td>Cookie <code>ak_bmsc</code> persistida en la sesión</td><td>Después del warmup en <code>/</code>, todas las consultas reutilizan la cookie del Bot Manager Standard Cache.</td></tr>
-    <tr><td>Cache de observaciones &lt;24h</td><td>Si una mesa ya tiene ETag capturado en el manifest, no se reconsulta — sobrevivir a interrupciones sin perder progreso.</td></tr>
+    <tr><td>Cache de observaciones &lt;24h</td><td>Si una mesa ya tiene ETag capturado en el manifest, no se reconsulta — sobrevive a interrupciones sin perder progreso.</td></tr>
   </table>
   <p>
-    <strong>Resultado medido:</strong> de <strong>76% de bloqueo</strong> con
-    <code>requests</code> + 16 workers a <strong>0% de bloqueo</strong> con
-    <code>curl_cffi</code> + 4 workers, a velocidad sostenida de ~22 req/s.
-    El barrido nacional (118.000 mesas) toma ~90 minutos.
+    <strong>Resultados medidos (validados en producción):</strong>
+  </p>
+  <table>
+    <tr><th>Setup</th><th>Tasa de bloqueo</th><th>Velocidad</th></tr>
+    <tr><td><code>requests</code> + 16 workers</td><td style="color: var(--accent)">96 %</td><td>~3 req/s (con cambios de red constantes)</td></tr>
+    <tr><td><code>curl_cffi</code> + 4 workers (sin rate limit)</td><td style="color: var(--orange)">44–91 %</td><td>~6 req/s (inestable)</td></tr>
+    <tr><td><strong><code>curl_cffi</code> + 4 workers + rate limit 3 req/s</strong></td><td style="color: var(--green)"><strong>0 %</strong></td><td><strong>3.0 req/s sostenido</strong></td></tr>
+  </table>
+  <p>
+    Con el setup completo, el barrido nacional (<strong>~118.000 mesas</strong>) toma
+    aproximadamente <strong>11 horas continuas sin intervención manual</strong>.
+    Es lento pero consistente: déjalo correr en background y al día siguiente
+    tienes la línea base criptográfica nacional completa. El cache permite
+    interrupciones y reanudaciones sin perder progreso.
   </p>
   <div class="callout">
     <i class="bi bi-info-circle"></i>
