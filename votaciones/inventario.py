@@ -83,13 +83,16 @@ def _migrar_legacy(dept_name: str) -> None:
 
 
 def _head_servidor(session: requests.Session, url: str, timeout: float = 30.0) -> dict:
-    """Hace HEAD para capturar headers de integridad. Si HEAD da error usa GET
-    con Range, pero entonces el Content-Length viene de Content-Range (tamaño
-    real) y NO del header Content-Length (que reflejaria solo el rango pedido)."""
+    """Hace HEAD para capturar headers de integridad. Si HEAD da error o un 200
+    sin ETag (bloqueo silencioso del CDN / Akamai sirviendo HTML default), usa
+    GET con Range. En GET-Range el Content-Length viene de Content-Range."""
     try:
         r = session.head(url, headers=HEADERS_PDF, timeout=timeout, allow_redirects=True)
         usado_range = False
-        if r.status_code not in (200, 301, 302):
+        # Caer al fallback si: error HTTP, O 200 sin ETag (Akamai bloqueando).
+        # Un PDF legitimo de S3 SIEMPRE viene con ETag; si falta = no es el PDF.
+        sin_etag = not (r.headers.get("ETag") or "").strip()
+        if r.status_code not in (200, 301, 302) or sin_etag:
             r = session.get(url, headers={**HEADERS_PDF, "Range": "bytes=0-0"},
                             timeout=timeout, stream=True)
             r.close()
@@ -105,9 +108,12 @@ def _head_servidor(session: requests.Session, url: str, timeout: float = 30.0) -
                 tamano_real = cr.rsplit("/", 1)[-1].strip()
                 if tamano_real and tamano_real != "*":
                     cl = tamano_real
+        etag = (h.get("ETag") or "").strip('"').lstrip("W/").strip('"')
+        # Si ni con fallback obtuvimos ETag => CDN bloqueando
+        http_status = r.status_code if etag else "BLOCKED_NO_ETAG"
         return {
-            "http_status": r.status_code,
-            "etag": (h.get("ETag") or "").strip('"').lstrip("W/").strip('"'),
+            "http_status": http_status,
+            "etag": etag,
             "last_modified": h.get("Last-Modified", ""),
             "version_id": h.get("x-amz-version-id", ""),
             "content_length": cl,
